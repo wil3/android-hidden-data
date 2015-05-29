@@ -1,0 +1,6 @@
+bin/
+sootOutput/
+target/
+.classpath
+.settings
+.project

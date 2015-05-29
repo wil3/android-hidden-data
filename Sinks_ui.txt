@@ -1,0 +1,14 @@
+<android.widget.TextView: void setText(java.lang.CharSequence)> -> _SINK_
+<android.widget.TextView: void setText(java.lang.CharSequence, android.widget.TextView.BufferType)> -> _SINK_
+
+%Easy taint?
+%BitmapFactory.decodeStream
+%Bitmap
+<android.widget.ImageView: void setImageBitmap(android.graphics.Bitmap)> -> _SINK_
+
+
+<android.widget.CheckBox: void setChecked(boolean)> -> _SINK_
+
+<android.widget.ToggleButton: void setChecked(boolean)> -> _SINK_
+<android.widget.ToggleButton: void setTextOff(java.lang.CharSequence)> -> _SINK_
+<android.widget.ToggleButton: void setTextOn(java.lang.CharSequence)> -> _SINK_
