@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import soot.Body;
 import soot.BodyTransformer;
+import soot.Local;
 import soot.Main;
 import soot.PackManager;
 import soot.PatchingChain;
@@ -18,6 +19,7 @@ import soot.Scene;
 import soot.SootClass;
 import soot.SootMethod;
 import soot.Transform;
+import soot.Type;
 import soot.Unit;
 import soot.jimple.infoflow.IInfoflow.CallgraphAlgorithm;
 import soot.jimple.infoflow.android.SetupApplication;
@@ -33,22 +35,21 @@ import soot.util.Chain;
  */
 public class ValidateFlows {
 	private static final Logger logger = LoggerFactory.getLogger(ValidateFlows.class.getName());
-
-
-	List<String> methodsToSearchFor;
-	SetupApplication context;
 	
-	HashMap<String, Integer> methodHistogram = new HashMap<String, Integer>();
+	private List<String> foundJsonDeserializeSources;
+	private SetupApplication context;
+	
+	private HashMap<String, Integer> methodHistogram = new HashMap<String, Integer>();
 	
 	public ValidateFlows(SetupApplication context, List<String> methodsToSearchFor){
-		this.methodsToSearchFor = methodsToSearchFor;
+		this.foundJsonDeserializeSources = methodsToSearchFor;
 		this.context = context;
 		initMethodHistogram();
 
 	}
 	
 	private void initMethodHistogram(){
-		for (String method : methodsToSearchFor){
+		for (String method : foundJsonDeserializeSources){
 			methodHistogram.put(method, 0);
 		}
 	}
@@ -57,68 +58,54 @@ public class ValidateFlows {
 		soot.G.reset();
 
 		context.initializeSoot();
-		
-		
-	        PackManager.v().getPack("jtp").add(new Transform("jtp.myInstrumenter", new BodyTransformer() {
+	
+        PackManager.v().getPack("jtp").add(new Transform("jtp.myInstrumenter", new BodyTransformer() {
 
-				@Override
-				protected void internalTransform(final Body b, String phaseName, @SuppressWarnings("rawtypes") Map options) {
-
-						processBody(b);
+			@Override
+			protected void internalTransform(final Body b, String phaseName, @SuppressWarnings("rawtypes") Map options) {
+				
+					String thisClassName = "";
+					try {
+					Local thisLocal = b.getThisLocal();
+					Type type = thisLocal.getType();
+					thisClassName = type.toString();
+					} catch (Exception e){
+						
 					}
-			}));
-			
-	        PackManager.v().runPacks();
+					processBody(b,thisClassName );
+				}
+		}));
+		
+       // PackManager.v().runPacks();
 	}
 	
-	public void validate2() {
-		soot.G.reset();
-
-		context.initializeSoot();
-		
-		Chain<SootClass> classes = Scene.v().getApplicationClasses();
-		Iterator<SootClass> it = classes.iterator();
-		while (it.hasNext()){
-			SootClass sootClass = it.next();
-			try {
-			searchForMethod(sootClass);
-			} catch(Exception e){
-				e.printStackTrace();
+	private void processBody(Body body, String thisName){
+		Iterator<Unit>it =  body.getUnits().snapshotIterator();
+		while(it.hasNext()){
+			Unit unit = it.next();
+			if (doesUnitMatchFoundSources(unit, thisName)){
+				//should we do something here?
+				
 			}
 		}
 	}
+
 	
-	public boolean usesSearchedForMethod(Unit unit){
+	public boolean doesUnitMatchFoundSources(Unit unit, String thisName){
 		
 		boolean found = false;
-		for (String methodSig : methodsToSearchFor){
+		for (String methodSig : foundJsonDeserializeSources){
 			if (unit.toString().contains(methodSig)){
 				int c = methodHistogram.get(methodSig);
 				methodHistogram.put(methodSig, c+1);
-				logger.info("Found source in {} ", unit.toString());
+				logger.info("Class: {} Found source in {} ", thisName, unit.toString());
 				return true;
 			}
 		}
 		return found;
 	}
 	
-	private void searchForMethod(SootClass sootClass){
-		for (SootMethod method : sootClass.getMethods()){
-			
-			Body body = method.retrieveActiveBody();
-			processBody(body);
-		}
-	}
 	
-	private void processBody(Body body){
-		Iterator<Unit>it =  body.getUnits().snapshotIterator();
-		while(it.hasNext()){
-			Unit unit = it.next();
-			if (usesSearchedForMethod(unit)){
-				
-			}
-		}
-	}
 	
 	public HashMap<String, Integer> getResults(){
 		return methodHistogram;

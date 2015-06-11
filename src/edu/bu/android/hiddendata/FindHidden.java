@@ -22,6 +22,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.Map.Entry;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -34,6 +36,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xmlpull.v1.XmlPullParserException;
 
+import soot.SootClass;
+import soot.Unit;
 import soot.jimple.Stmt;
 import soot.jimple.infoflow.IInfoflow.CallgraphAlgorithm;
 import soot.jimple.infoflow.android.SetupApplication;
@@ -45,6 +49,7 @@ import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.results.ResultSinkInfo;
 import soot.jimple.infoflow.results.ResultSourceInfo;
 import soot.jimple.infoflow.solver.cfg.IInfoflowCFG;
+import soot.jimple.infoflow.source.ISourceSinkManager;
 import soot.jimple.infoflow.taintWrappers.EasyTaintWrapper;
 import soot.jimple.infoflow.taintWrappers.ITaintPropagationWrapper;
 import soot.jimple.infoflow.taintWrappers.TaintWrapperSet;
@@ -59,6 +64,7 @@ public class FindHidden {
 	private static int sysTimeout = -1;
 	
 	private static String sourcesAndSinksFilePath = "SourcesAndSinks.txt";
+	private static String easyTaintFilePath = null;
 	private static boolean stopAfterFirstFlow = false;
 	private static boolean implicitFlows = false;
 	private static boolean staticTracking = true;
@@ -207,9 +213,9 @@ public class FindHidden {
 			//This is our first pass so process the results to find what the 
 			//next sources should be 
 			if (passMode == 0){
-				new ProcessNetworkToDeserializeResults(sourcesAndSinksFile, results.infoflow).process();
+				new NetworkToDeserializeFlowAnalyzer(results.context,  sourcesAndSinksFile, results.infoFlowResults).process();
 				
-				//Now do the second pass
+				//Now do the second pass 
 				sourcesAndSinksFilePath = sourcesAndSinksFile.getAbsolutePath();
 
 				System.gc();
@@ -227,7 +233,7 @@ public class FindHidden {
 			
 				
 			//Now we are done so we need to figure out where we didnt have mappings
-			new ProcessDeserializeToUiResults(results.app, results.infoflow).process();
+			new DeserializeToUiFlowAnalyzer(results.context, results.infoFlowResults).process();
 			
 			
 			System.gc();
@@ -235,7 +241,34 @@ public class FindHidden {
 			
 		}
 	}
-
+	
+	/**
+	 * When callbacks are enabled flows that are not intentional are found. I think this is due
+	 * to the callbacks acting as seeds for the source/sink so here we just want to make sure that
+	 * the source is actually coming from one of our defined sources not precomputed by soot
+	 * @param sourcesSinks
+	 * @param results
+	 
+	private void postProcessResults(ISourceSinkManager sourcesSinks, InfoflowResults results){
+		
+		
+		for (Entry<ResultSinkInfo, Set<ResultSourceInfo>> entry : results.getResults().entrySet()) {
+			SootClass declaringClass = iCfg.getMethodOf(entry.getKey().getSink()).getDeclaringClass();
+			entry.getKey().setDeclaringClass(declaringClass);
+			
+			for (ResultSourceInfo source : entry.getValue()) {
+				logger.info("- {} in method {}",source, iCfg.getMethodOf(source.getSource()).getSignature());
+				if (source.getPath() != null && !source.getPath().isEmpty()) {
+					logger.info("\ton Path: ");
+					for (Unit p : source.getPath()) {
+						logger.info("\t -> " + iCfg.getMethodOf(p));
+						logger.info("\t\t -> " + p);
+					}
+				}
+			}
+		}
+	}
+*/
 
 	private static boolean parseAdditionalOptions(String[] args) {
 		int i = 2;
@@ -347,6 +380,10 @@ public class FindHidden {
 				sourcesAndSinksFilePath = args[i + 1];
 				i += 2;
 			}
+			else if (args[i].equalsIgnoreCase("--easytaint")){
+				easyTaintFilePath = args[i + 1];
+				i += 2;
+			}
 			else
 				i++;
 		}
@@ -380,7 +417,7 @@ public class FindHidden {
 				try {
 					final long beforeRun = System.nanoTime();
 					wr.write("Running data flow analysis...\n");
-					final InfoflowResults res = runAnalysis(fileName, androidJar).infoflow;
+					final InfoflowResults res = runAnalysis(fileName, androidJar).infoFlowResults;
 					wr.write("Analysis has run for " + (System.nanoTime() - beforeRun) / 1E9 + " seconds\n");
 					
 					wr.flush();
@@ -531,8 +568,12 @@ public class FindHidden {
 				taintWrapper = createLibrarySummaryTW();
 			}
 			else {
+				
+				//Create a new file from this string paramter
 				final EasyTaintWrapper easyTaintWrapper;
-				if (new File("../soot-infoflow/EasyTaintWrapperSource.txt").exists())
+				if (easyTaintFilePath != null)
+					easyTaintWrapper = new EasyTaintWrapper(easyTaintFilePath);
+				else if (new File("../soot-infoflow/EasyTaintWrapperSource.txt").exists())
 					easyTaintWrapper = new EasyTaintWrapper("../soot-infoflow/EasyTaintWrapperSource.txt");
 				else
 					easyTaintWrapper = new EasyTaintWrapper("EasyTaintWrapperSource.txt");
@@ -551,11 +592,11 @@ public class FindHidden {
 			}
 				
 			System.out.println("Running data flow analysis...");
-			final InfoflowResults res = app.runInfoflow(new MyResultsAvailableHandler());
+			final InfoflowResults res = app.runInfoflow();
 			System.out.println("Analysis has run for " + (System.nanoTime() - beforeRun) / 1E9 + " seconds");
 			AnalysisResults r = new AnalysisResults();
-			r.app = app;
-			r.infoflow = res;
+			r.context = app;
+			r.infoFlowResults = res;
 			return r;
 		} catch (IOException ex) {
 			System.err.println("Could not read file: " + ex.getMessage());
@@ -606,7 +647,7 @@ public class FindHidden {
 			return null;
 		}
 	}
-
+//TODO need a proper parsing library for this
 	private static void printUsage() {
 		System.out.println("FlowDroid (c) Secure Software Engineering Group @ EC SPRIDE");
 		System.out.println();
@@ -630,6 +671,7 @@ public class FindHidden {
 		System.out.println("\t--FRAGMENTS Enable use of Fragments, not enabled by default");
 		System.out.println("\t--SUMMARYPATH Path to library summaries");
 		System.out.println("\t--SOURCESSINKS Full path of SourcesAndSinks.txt");
+		System.out.println("\t--EASYTAINT Full path of easy taint wrapper file.");
 		System.out.println();
 		System.out.println("Supported callgraph algorithms: AUTO, CHA, RTA, VTA, SPARK");
 		System.out.println("Supported layout mode algorithms: NONE, PWD, ALL");
@@ -637,52 +679,10 @@ public class FindHidden {
 	}
 
 	private static final class AnalysisResults {
-		InfoflowResults infoflow;
-		SetupApplication app;
+		InfoflowResults infoFlowResults;
+		SetupApplication context;
 	}
 	
-	private static final class MyResultsAvailableHandler implements
-			ResultsAvailableHandler {
-		private final BufferedWriter wr;
-
-		private MyResultsAvailableHandler() {
-			this.wr = null;
-		}
-
-		private MyResultsAvailableHandler(BufferedWriter wr) {
-			this.wr = wr;
-		}
-
-		@Override
-		public void onResultsAvailable(
-				IInfoflowCFG cfg, InfoflowResults results) {
-			// Dump the results
-			if (results == null) {
-				print("No results found.");
-			}
-			else {
-				for (ResultSinkInfo sink : results.getResults().keySet()) {
-					print("Found a flow to sink " + sink + ", from the following sources:");
-					for (ResultSourceInfo source : results.getResults().get(sink)) {
-						print("\t- " + source.getSource() + " (in "
-								+ cfg.getMethodOf(source.getSource()).getSignature()  + ")");
-						if (source.getPath() != null && !source.getPath().isEmpty())
-							print("\t\ton Path " + source.getPath());
-					}
-				}
-			}
-		}
-
-		private void print(String string) {
-			try {
-				System.out.println(string);
-				if (wr != null)
-					wr.write(string + "\n");
-			}
-			catch (IOException ex) {
-				// ignore
-			}
-		}
-	}
+	
 	
 }
