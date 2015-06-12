@@ -36,6 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xmlpull.v1.XmlPullParserException;
 
+import edu.bu.android.hiddendata.infoflow.RewireFlow;
 import soot.SootClass;
 import soot.Unit;
 import soot.jimple.Stmt;
@@ -56,6 +57,11 @@ import soot.jimple.infoflow.taintWrappers.TaintWrapperSet;
 
 public class FindHidden {
 	
+	public enum Mode {
+		NETWORK_TO_DESERIALIZE,
+		DESERIALIZE_TO_UI
+	}
+	
 	private static final Logger logger = LoggerFactory.getLogger(FindHidden.class.getName());
 	static String command;
 	static boolean generate = false;
@@ -63,6 +69,12 @@ public class FindHidden {
 	private static int timeout = -1;
 	private static int sysTimeout = -1;
 	
+	protected static final String RESULT_DIRECTORY = "results-1";
+	protected static final String SOURCESINK_SUFFEX = "-sources_sinks.txt";
+	protected static final String EASY_TAINT_WRAPPER_FILE_PREFIX = "-easytaintwrapper.txt";
+	protected static final String RESULTS_SUFFIX = "-results.json";
+	
+	private static String injectionsFilePath = null;
 	private static String sourcesAndSinksFilePath = "SourcesAndSinks.txt";
 	private static String easyTaintFilePath = null;
 	private static boolean stopAfterFirstFlow = false;
@@ -87,11 +99,8 @@ public class FindHidden {
 	private static IIPCManager ipcManager = null;
 	
 	
-	private static int passMode = 0;
+	private static Mode mode;
 
-	private static final int PASS_FIRST = 0;
-	private static final int PASS_SECOND = 1;
-	
 	public static void setIPCManager(IIPCManager ipcManager)
 	{
 		FindHidden.ipcManager = ipcManager;
@@ -181,22 +190,29 @@ public class FindHidden {
 			
 			//Set the source sink file to be used
 			String apkFileName = new File(fullFilePath).getName();
-			String sourceAndSinkFileName = "SourcesAndSinks_" + apkFileName + ".txt";
+			String sourceAndSinkFileName = apkFileName + SOURCESINK_SUFFEX;
+			String easyTaintFileName = apkFileName + EASY_TAINT_WRAPPER_FILE_PREFIX;
 
-			File sourcesAndSinksDir = new File("./sources-sinks/");
-			sourcesAndSinksDir.mkdirs();
-			File sourcesAndSinksFile = new File(sourcesAndSinksDir, sourceAndSinkFileName);
-
+			File apkResult1Dir = new File("./" + RESULT_DIRECTORY + "/" + apkFileName);
+			
 			//If the file already exists then do the second pass
-			if (sourcesAndSinksFile.exists()){
-				
+			if (apkResult1Dir.exists()){
 				logger.warn("Second pass source-sink file exists, starting from there.");
-				sourcesAndSinksFilePath = sourcesAndSinksFile.getAbsolutePath();
-				//layoutMatchingMode = LayoutMatchingMode.MatchAll;
-				passMode = 1;
+				sourcesAndSinksFilePath = new File(apkResult1Dir, sourceAndSinkFileName).getAbsolutePath();
+				easyTaintFilePath = new File(apkResult1Dir, easyTaintFileName ).getAbsolutePath();
+				File resultsFile = new File(apkResult1Dir, apkFileName + FindHidden.RESULTS_SUFFIX );
+				injectionsFilePath = resultsFile.getAbsolutePath();
+				mode = Mode.DESERIALIZE_TO_UI;
+			} else {
+				apkResult1Dir.mkdirs();
+				//Keep the source sink and easy taint default
+				mode = Mode.NETWORK_TO_DESERIALIZE;
 			}
 			
+			
 			logger.info("Using " + sourcesAndSinksFilePath + " as source-sink file.");
+			
+			
 			
 			AnalysisResults results = null;
 			
@@ -209,15 +225,19 @@ public class FindHidden {
 				results = runAnalysis(fullFilePath, args[1]);
 
 				
+			File updatedSourceSinkFile = new File(apkResult1Dir, sourceAndSinkFileName);
+			File resultsFile = new File(apkResult1Dir, apkFileName + FindHidden.RESULTS_SUFFIX );
+			injectionsFilePath = resultsFile.getAbsolutePath();
 			
 			//This is our first pass so process the results to find what the 
 			//next sources should be 
-			if (passMode == 0){
-				new NetworkToDeserializeFlowAnalyzer(results.context,  sourcesAndSinksFile, results.infoFlowResults).process();
+			if (mode == Mode.NETWORK_TO_DESERIALIZE){
+				NetworkToDeserializeFlowAnalyzer pass1 = new NetworkToDeserializeFlowAnalyzer(results.context,  updatedSourceSinkFile, results.infoFlowResults);
+				pass1.process();
 				
-				//Now do the second pass 
-				sourcesAndSinksFilePath = sourcesAndSinksFile.getAbsolutePath();
-
+				//Now use these values for the second pass 
+				sourcesAndSinksFilePath = updatedSourceSinkFile.getAbsolutePath();
+				easyTaintFilePath = pass1.getEasyTaintWrapperFile().getAbsolutePath();
 				System.gc();
 
 				// Run the analysis
@@ -226,14 +246,11 @@ public class FindHidden {
 				else if (sysTimeout > 0)
 					runAnalysisSysTimeout(fullFilePath, args[1]);
 				else
-					results = runAnalysis(fullFilePath, args[1]);
-
-				
+					results = runAnalysis(fullFilePath, args[1]);	
 			}
 			
-				
 			//Now we are done so we need to figure out where we didnt have mappings
-			new DeserializeToUiFlowAnalyzer(results.context, results.infoFlowResults).process();
+			new DeserializeToUiFlowAnalyzer(resultsFile, results.context, results.infoFlowResults).findHiddenData();
 			
 			
 			System.gc();
@@ -562,7 +579,7 @@ public class FindHidden {
 			app.setPathBuilder(pathBuilder);
 			app.setComputeResultPaths(computeResultPaths);
 			app.setUseFragments(useFragments);
-			
+			app.setInjectionsFilePath(injectionsFilePath);
 			final ITaintPropagationWrapper taintWrapper;
 			if (librarySummaryTaintWrapper) {
 				taintWrapper = createLibrarySummaryTW();
@@ -580,6 +597,8 @@ public class FindHidden {
 				easyTaintWrapper.setAggressiveMode(aggressiveTaintWrapper);
 				taintWrapper = easyTaintWrapper;
 			}
+			
+			app.addPreprocessor(new RewireFlow(injectionsFilePath));
 			app.setTaintWrapper(taintWrapper);
 			app.calculateSourcesSinksEntrypoints(sourcesAndSinksFilePath);
 			//app.calculateSourcesSinksEntrypoints("SuSiExport.xml");

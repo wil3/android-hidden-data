@@ -48,6 +48,9 @@ On second pass need to be able to specify additionall informatino to be read by 
 
 There is a JCastExpr value, the assignment is what needs to be tainted. This must be located first
 
+
+* 6-11-15 What happens if a model returns a list?
+* What about other things other than lists, need hashmap, sets, etc
 #Coverage
 * Async tasks (yes)
 * Fragments (yes)
@@ -101,3 +104,7 @@ Test-flow app will find a flow when not aggressive, no callbacks,  nothing added
 fromJson is not a source for a flow found, is it because of the tainting for the cast?
 If source is IP ip = new IP() the flow is found suggesting the problem is the casting which is done when in aggressive mode
 
+
+So if we taint the List by injecting an add of the model type, we can then get paths to the sink and we just have to check for the source that is fromJson which would mean that that tainted List actually does flow to the UI sink
+
+We also need the Model constructor to be a source which is how the list becomes tainted

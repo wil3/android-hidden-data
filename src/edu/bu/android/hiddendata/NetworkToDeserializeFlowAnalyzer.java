@@ -2,6 +2,7 @@ package edu.bu.android.hiddendata;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.Charset;
@@ -24,8 +25,14 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 
+import edu.bu.android.hiddendata.ModelExtraction.OnExtractionHandler;
+import edu.bu.android.hiddendata.model.FirstPassResult;
+import edu.bu.android.hiddendata.model.InjectionPoint;
+import edu.bu.android.hiddendata.model.Model;
 import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
@@ -63,11 +70,12 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 	//private final Hashtable<String, ObjectExtractionQuery> extractionPoints;
 	private final Hashtable<String,Integer> modelParameterIndexLookup = new Hashtable<String, Integer>();
 	private static final Logger logger = LoggerFactory.getLogger(NetworkToDeserializeFlowAnalyzer.class.getName());
-	private static final String EASY_TAINT_WRAPPER_FILE_PREFIX = "easytaintwrapper_";
+
 	private InfoflowResults results;
 	private final String apkFileName;
 	private File sourcesAndSinksFile;
 	private File easyTaintWrapperFile;
+	private File resultsFile;
 	
 	
 	public NetworkToDeserializeFlowAnalyzer(SetupApplication context, File sourcesAndSinksFile, InfoflowResults results){
@@ -75,7 +83,8 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		this.apkFileName = new File(context.getApkFileLocation()).getName();
 		this.results = results;
 		this.sourcesAndSinksFile = sourcesAndSinksFile;
-		this.easyTaintWrapperFile = new File(sourcesAndSinksFile.getParentFile(), EASY_TAINT_WRAPPER_FILE_PREFIX + apkFileName + ".txt");
+		this.easyTaintWrapperFile = new File(sourcesAndSinksFile.getParentFile(), apkFileName + FindHidden.EASY_TAINT_WRAPPER_FILE_PREFIX);
+		this.resultsFile = new File(sourcesAndSinksFile.getParentFile(),apkFileName + FindHidden.RESULTS_SUFFIX );
 		//TODO stick in config file
 		modelParameterIndexLookup.put("<com.google.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)>", 1);
 		modelParameterIndexLookup.put("<com.google.gson.Gson: java.lang.Object fromJson(com.google.gson.JsonElement,java.lang.Class)>", 1);
@@ -116,7 +125,6 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 						String addClassName = extractClassFromListAdd(sink.getSink());
 						addMethodParameterClassNames.put(addClassName, listFlow);
 						type = 1;
-						
 					} else { //for right now its actual network to deserialize flows
 						type = 2;
 					}
@@ -148,21 +156,86 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 			
 		}
 		
+		List<InjectionPoint> injections = new ArrayList<InjectionPoint>();
 		List<String> sinkSignatures = new ArrayList<String>();
 		//Now finish up
 		//Look at all the objects extracted from List.add(java.lang.Object) and Model Objects
 		//we want to use them in our next pass if they use the model objects
+		
+		//We are going to try to not do this and instead force taint where there is a list constructor
+		
 		Iterator<String> it = addMethodParameterClassNames.keySet().iterator();
 		while(it.hasNext()){
 			String addMethodParameterClassName = it.next();
 			if (modelClassNames.contains(addMethodParameterClassName)){
 				ListFlow resultInfo = addMethodParameterClassNames.get(addMethodParameterClassName);
 				//it.remove();
-				sourceSignatures.add(makeSignature(resultInfo.source));
-				sinkSignatures.add(makeSignature(resultInfo.sink));
+				//sourceSignatures.add(makeSignature(resultInfo.source));
+				//sinkSignatures.add(makeSignature(resultInfo.sink));
+				
+				
+				//Get the origin List constructor location and save this so we can inject a constructor
+				//in the next pass
+				InjectionPoint inject = new InjectionPoint();
+				inject.setDeclaredClass(resultInfo.source.getDeclaringClass().getName());
+				inject.setTargetInstruction(resultInfo.source.getStmt().toString());
+				inject.setMethodSignature(resultInfo.source.getMethod().getSubSignature());
+				inject.setClassToInject(addMethodParameterClassName);
+				injections.add(inject);
 			}
 		}
+		
+		
+		FirstPassResult result = new FirstPassResult();
+		List<Model> models = new ArrayList<Model>();
+		final List<String> modelMethodSignatures = new ArrayList<String>();
 
+		//Now that we have all the base models, analyze each
+		//and get any other models they reference
+		ModelExtraction me = new ModelExtraction();
+		
+		//For optimization since we already need to loop through all methods
+		//also save all the get methods so we can on the second pass
+		//use them to compare to what we found
+		me.addHandler(new OnExtractionHandler() {
+			
+			@Override
+			public void onMethodExtracted(SootClass sootClass, SootMethod method) {
+				
+				String methodName = method.getName();
+				if (shouldAcceptMethod(methodName)){
+					modelMethodSignatures.add(method.getSignature());
+
+				}
+				/*
+				Type retType = method.getReturnType();
+				//A list is a ref type as well
+				if (retType instanceof RefType){
+					RefType refType = (RefType) retType;
+					String retClassName = refType.getClassName();
+					if (!retClassName.startsWith("java.")){
+					}
+				}
+				*/
+			}
+		});
+		
+		//Make the default constructors for the model classes found 
+		//and also find all other associated models
+		List<String> allModels = new ArrayList<String>();
+		for (String model : modelClassNames){
+			allModels.addAll(me.getModels(model));
+			sourceSignatures.add(makeDefaultSignatureConstructor(model));
+		}
+		
+		//Write out results to be used for next pass
+		result.setGetMethodSignatures(modelMethodSignatures);
+		result.setModelNames(allModels);
+		result.setInjections(injections);
+		writeResults(result);
+		
+		createEasyTaintWrapperFile(allModels);
+		
 		//Now create a new sink source file for the next pass
 		createSinkSourceFile(sourceSignatures, sinkSignatures);
 	
@@ -179,20 +252,24 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		String sig = am.getSignature();
 		return sig;
 	}
-	
-	private boolean isListFlow(ResultSinkInfo sink, ResultSourceInfo source){
-		return sink.getSink().toString().contains("<java.util.List: boolean add(java.lang.Object)>") && source.getSource().toString().contains("<java.util.ArrayList: void <init>()>");
+
+	private String makeDefaultSignatureConstructor(String className){
+		AndroidMethod am = new AndroidMethod("<init>", "void", className);
+		return am.getSignature();
 	}
 	
 	private String extractClassFromListAdd(Stmt sink){
 		return extractModelFromInvokeStmt((InvokeStmt)sink);
 	}
+	
+	
 	private String extractModelFromInvokeStmt(InvokeStmt stmt){
 
 		 Value v = stmt.getInvokeExprBox().getValue();
 		 if (v instanceof JInterfaceInvokeExpr){
 			 JInterfaceInvokeExpr jv = (JInterfaceInvokeExpr) v;
 
+			 //This is old to support json with Maps
 			 if (jv.getMethodRef().getSignature().equals("<java.util.Map: java.lang.Object put(java.lang.Object,java.lang.Object)>")){
 
 				 if (jv.getBaseBox().getValue() instanceof JimpleLocal){
@@ -266,13 +343,7 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		 return className;
 	}
 	
-	private String convertBytecodeToJavaClassName(String classPath){
-		//TODO this wont work for all cases
-		if (classPath.endsWith(";")){
-			classPath = classPath.substring(classPath.indexOf("L") + 1, classPath.length() -1);
-		}
-		return classPath.replace("/", ".");
-	}
+	
 	
 	/**
 	 * 
@@ -325,8 +396,6 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 	private String extractModelClassName(Stmt stmt){
 
 		String className = null;
-
-		
 		if (stmt instanceof InvokeStmt){
 			className = extractModelFromInvokeStmt((InvokeStmt) stmt);
 
@@ -346,6 +415,12 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		return null;
 	}
 	
+	/**
+	 * Create for the second pass so we can start independently
+	 * 
+	 * @param sources
+	 * @param sinks
+	 */
 	private void createSinkSourceFile(List<String> sources, List<String> sinks){
 		
 		
@@ -387,32 +462,38 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 	private void createEasyTaintWrapperFile(List<String> models){
 		//Load all the known UI sinks
 				
-				PrintWriter writer = null;
-				try {
-					
-					writer = new PrintWriter(easyTaintWrapperFile, "UTF-8");
-					
-					for (String model : models){
-						writer.println(model);
-					}
-					
-					
-					Path path = FileSystems.getDefault().getPath("./EasyTaintWrapperSource-bootstrap.txt");
-					List<String> easyTaints = Files.readAllLines(path, Charset.defaultCharset());
+		PrintWriter writer = null;
+		try {
+			
+			writer = new PrintWriter(easyTaintWrapperFile, "UTF-8");
+			
+			//Include the models
+			for (String model : models){
+				writer.println("^" + model);
+			}
+			
+			
+			Path path = FileSystems.getDefault().getPath("./EasyTaintWrapperSource-default.txt");
+			List<String> easyTaints = Files.readAllLines(path, Charset.defaultCharset());
 
-					//Now add all the sinks
-					for (String taints : easyTaints){
-						writer.println(taints);
-					}
-				} catch (IOException e){
-					logger.error(e.getMessage());
-				} finally {
-					if (writer != null){
-						writer.close();
-					}
-				}
+			//Now add all the defaults
+			for (String taints : easyTaints){
+				writer.println(taints);
+			}
+			
+		} catch (IOException e){
+			logger.error(e.getMessage());
+		} finally {
+			if (writer != null){
+				writer.close();
+			}
+		}
 	}
 	
+	/**
+	 * Load the parameter mappings
+	 * @return
+	 */
 	private Map loadParameterIndexLookupFile(){
 		Map map = null;
 		try {
@@ -425,8 +506,32 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		}
 		return map;
 	}
-	public class ListFlow {
-		public ResultInfo source;
-		public ResultInfo sink;
+	
+	private void writeResults(FirstPassResult results){
+		Gson gson = new GsonBuilder().setPrettyPrinting().create();
+		PrintWriter writer = null;
+		try {
+				String json = gson.toJson(results);
+			   writer = new PrintWriter(resultsFile, "UTF-8");
+			   writer.write(json);
+			  
+			  } catch (IOException e) {
+			   e.printStackTrace();
+			  } finally{
+				  if (writer != null){
+					writer.close();
+				  }
+			  }
 	}
+	
+	public File getEasyTaintWrapperFile() {
+		return easyTaintWrapperFile;
+	}
+
+
+	public void setEasyTaintWrapperFile(File easyTaintWrapperFile) {
+		this.easyTaintWrapperFile = easyTaintWrapperFile;
+	}
+
+
 }

@@ -76,7 +76,7 @@ public class ValidateFlows {
 				}
 		}));
 		
-       // PackManager.v().runPacks();
+       PackManager.v().runPacks();
 	}
 	
 	private void processBody(Body body, String thisName){

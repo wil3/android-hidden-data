@@ -1,6 +1,0 @@
-<com.github.wil3.android.flowtests.IP: java.lang.String getAbout()> -> _SOURCE_
-<com.github.wil3.android.flowtests.IP: java.lang.String getIp()> -> _SOURCE_
-<com.github.wil3.android.flowtests.IP: java.net.URL getPro()> -> _SOURCE_
-
-
-<android.widget.TextView: void setText(java.lang.CharSequence)> -> _SINK_
