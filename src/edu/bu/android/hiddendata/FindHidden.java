@@ -1,15 +1,4 @@
 package edu.bu.android.hiddendata;
-/*******************************************************************************
- * Copyright (c) 2012 Secure Software Engineering Group at EC SPRIDE.
- * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the GNU Lesser Public License v2.1
- * which accompanies this distribution, and is available at
- * http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
- * 
- * Contributors: Christian Fritz, Steven Arzt, Siegfried Rasthofer, Eric
- * Bodden, and others.
- ******************************************************************************/
-
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -18,12 +7,9 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.FilenameFilter;
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
-import java.util.Map.Entry;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -36,25 +22,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xmlpull.v1.XmlPullParserException;
 
-import edu.bu.android.hiddendata.infoflow.RewireFlow;
-import soot.SootClass;
-import soot.Unit;
-import soot.jimple.Stmt;
 import soot.jimple.infoflow.IInfoflow.CallgraphAlgorithm;
 import soot.jimple.infoflow.Infoflow;
 import soot.jimple.infoflow.android.SetupApplication;
 import soot.jimple.infoflow.android.source.AndroidSourceSinkManager.LayoutMatchingMode;
 import soot.jimple.infoflow.data.pathBuilders.DefaultPathBuilderFactory.PathBuilder;
-import soot.jimple.infoflow.handlers.ResultsAvailableHandler;
-import soot.jimple.infoflow.ipc.IIPCManager;
 import soot.jimple.infoflow.results.InfoflowResults;
-import soot.jimple.infoflow.results.ResultSinkInfo;
-import soot.jimple.infoflow.results.ResultSourceInfo;
-import soot.jimple.infoflow.solver.cfg.IInfoflowCFG;
-import soot.jimple.infoflow.source.ISourceSinkManager;
 import soot.jimple.infoflow.taintWrappers.EasyTaintWrapper;
 import soot.jimple.infoflow.taintWrappers.ITaintPropagationWrapper;
-import soot.jimple.infoflow.taintWrappers.TaintWrapperSet;
+import edu.bu.android.hiddendata.infoflow.RewireFlow;
 
 public class FindHidden {
 	
@@ -95,7 +71,7 @@ public class FindHidden {
 
 	private static CallgraphAlgorithm callgraphAlgorithm = CallgraphAlgorithm.AutomaticSelection;
 	
-	private static boolean DEBUG = true;
+	private static boolean DEBUG = false;
 	
 	
 	private static Mode mode;
@@ -141,8 +117,10 @@ public class FindHidden {
 				}
 			
 			});
-			for (String s : dirFiles)
-				apkFiles.add(s);
+			for (String s : dirFiles) {
+				
+				apkFiles.add(new File(args[0], s).getAbsolutePath());
+			}
 		} else {
 			String extension = apkFile.getName().substring(apkFile.getName().lastIndexOf("."));
 
@@ -161,25 +139,34 @@ public class FindHidden {
 			}
 		}
 
-		for (final String fileName : apkFiles) {
-			final String fullFilePath;
+		for (final String fullFilePath : apkFiles) {
+			//final String fullFilePath;
 			
 			// Directory handling
 			if (apkFiles.size() > 1) {
-				if (apkFile.isDirectory())
+				/*
+				if (apkFile.isDirectory()) {
 					fullFilePath = args[0] + File.separator + fileName;
-				else
+				} else {
 					fullFilePath = fileName;
+				}
+				*/
 				System.out.println("Analyzing file " + fullFilePath + "...");
-				File flagFile = new File("_Run_" + new File(fileName).getName());
+				File flagFile = new File("_Run_" + new File(fullFilePath).getName());
+				
 				if (flagFile.exists())
 					continue;
 				flagFile.createNewFile();
+				
+			} 
+			
+			//If we have a sys timeout then we need to spawn 
+			//a new processes and it will restart this for a single app
+			if (sysTimeout > 0) {
+				logger.info("Path: " + fullFilePath + " arg1: " + args[1]);
+				runAnalysisSysTimeout(fullFilePath, args[1]);
+				continue;
 			}
-			else
-				fullFilePath = fileName;
-			
-			
 			//Set the source sink file to be used
 			String apkFileName = new File(fullFilePath).getName();
 			String sourceAndSinkFileName = apkFileName + SOURCESINK_SUFFEX;
@@ -222,8 +209,9 @@ public class FindHidden {
 					logger.info("Using " + sourcesAndSinksFilePath + " as source-sink file.");
 
 					// Run the analysis using defaults 
-					results = run(fullFilePath, args[1]);
-
+					//results = run(fullFilePath, args[1]);
+					results = runAnalysis(fullFilePath, args[1]);
+					
 					if (results.infoFlowResults == null){
 						logger.error("Could not find any flows from Network to Deserialize, cannot continue");
 						return;
@@ -248,7 +236,7 @@ public class FindHidden {
 						sourcesAndSinksFilePath = sourceSinkFileList.getAbsolutePath();
 						easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
 
-						results = run(fullFilePath, args[1]);
+						results = runAnalysis(fullFilePath, args[1]);
 						ListAnalyzer la = new ListAnalyzer(results.context, results.infoFlowResults, pass1, resultsFile);
 						la.process();
 						System.gc();
@@ -273,7 +261,7 @@ public class FindHidden {
 					logger.info("Using " + sourcesAndSinksFilePath + " as source-sink file.");
 
 					// Run the analysis
-					results = run(fullFilePath, args[1]);
+					results = runAnalysis(fullFilePath, args[1]);
 					
 					//Now we are done so we need to figure out where we didnt have mappings
 					new DeserializeToUiFlowAnalyzer(resultsFile, results.context, results.infoFlowResults).findHiddenData();
@@ -510,7 +498,12 @@ public class FindHidden {
 		executor.shutdown();		
 	}
 
+	private static String easyTaintToString(){
+		return easyTaintFilePath == null ? "" : easyTaintFilePath;
+	}
 	private static void runAnalysisSysTimeout(final String fileName, final String androidJar) {
+		String logFileName = "_out-" + new File(fileName).getName() + ".log";
+
 		String classpath = System.getProperty("java.class.path");
 		String javaHome = System.getProperty("java.home");
 		String executable = "/usr/bin/timeout";
@@ -519,8 +512,9 @@ public class FindHidden {
 				"-s", "KILL",
 				sysTimeout + "s",
 				javaHome + "/bin/java",
+				"-Dorg.slf4j.simpleLogger.defaultLogLevel=info",
 				"-cp", classpath,
-				"soot.jimple.infoflow.android.TestApps.Test",
+				"edu.bu.android.hiddendata.FindHidden",
 				fileName,
 				androidJar,
 				stopAfterFirstFlow ? "--singleflow" : "--nosingleflow",
@@ -537,13 +531,19 @@ public class FindHidden {
 				aggressiveTaintWrapper ? "--aggressivetw" : "--nonaggressivetw",
 				"--pathalgo", pathAlgorithmToString(pathBuilder),
 				"--SOURCESSINKS", sourcesAndSinksFilePath,
-				"--EASYTAINT", easyTaintFilePath};
-		System.out.println("Running command: " + executable + " " + Arrays.toString(command));
+				"--EASYTAINT", easyTaintToString()
+		};
+		System.out.println("Running command: " + Arrays.toString(command));
 		try {
 			ProcessBuilder pb = new ProcessBuilder(command);
-			pb.redirectOutput(new File("_out_" + new File(fileName).getName() + ".txt"));
-			pb.redirectError(new File("err_" + new File(fileName).getName() + ".txt"));
+			//pb.inheritIO();
+			
+			//All of the proper logs are redirected to error
+			File f= new File("_out_" + new File(fileName).getName() + ".txt");
+			//pb.redirectOutput(f);
+			pb.redirectError(f);//new File("err_" + new File(fileName).getName() + ".txt"));
 			Process proc = pb.start();
+		
 			proc.waitFor();
 		} catch (IOException ex) {
 			System.err.println("Could not execute timeout command: " + ex.getMessage());
@@ -619,7 +619,7 @@ public class FindHidden {
 	
 			//Create a new file from this string paramter
 			final EasyTaintWrapper easyTaintWrapper;
-			if (easyTaintFilePath != null)
+			if (easyTaintFilePath != null && new File(easyTaintFilePath).exists())
 				easyTaintWrapper = new EasyTaintWrapper(easyTaintFilePath);
 			else if (new File("../soot-infoflow/EasyTaintWrapperSource.txt").exists())
 				easyTaintWrapper = new EasyTaintWrapper("../soot-infoflow/EasyTaintWrapperSource.txt");
@@ -685,7 +685,6 @@ public class FindHidden {
 		System.out.println("\t--NOPATHS Do not compute result paths");
 		System.out.println("\t--AGGRESSIVETW Use taint wrapper in aggressive mode");
 		System.out.println("\t--PATHALGO Use path reconstruction algorithm x");
-		System.out.println("\t--LIBSUMTW Use library summary taint wrapper");
 		System.out.println("\t--FRAGMENTS Enable use of Fragments, not enabled by default");
 		System.out.println("\t--SOURCESSINKS Full path of SourcesAndSinks.txt");
 		System.out.println("\t--EASYTAINT Full path of easy taint wrapper file.");

@@ -2,6 +2,18 @@
 
 When running the analysis a directory sources-sinks will be created containing the SourceAndSinks file for the first pass of the analysis (Network to model deserialization).
 
+#Build
+
+```
+mvn install
+```
+
+#Assemble
+
+```
+mvn assembly:assembly
+```
+
 #Files
 
 SourcesAndSinks_init.txt
