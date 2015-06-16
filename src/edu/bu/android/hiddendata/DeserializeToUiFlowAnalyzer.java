@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
 
-import edu.bu.android.hiddendata.model.FirstPassResult;
+import edu.bu.android.hiddendata.model.DeserializeToUIConfig;
 import edu.bu.android.hiddendata.model.JsonUtils;
 import soot.Unit;
 import soot.ValueBox;
@@ -40,9 +40,7 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 	private static final Logger logger = LoggerFactory.getLogger(DeserializeToUiFlowAnalyzer.class.getName());
 
 	private InfoflowResults results;
-	private Set<SourceSinkDefinition> sources;
-	private File resultsFile;
-	private FirstPassResult modelResults;
+	private DeserializeToUIConfig modelResults;
 	/**
 	 * 
 	 * @param context The application context
@@ -51,92 +49,63 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 	public DeserializeToUiFlowAnalyzer(File resultsFile , SetupApplication context, InfoflowResults results){
 		super(context);
 		this.results = results;
-		this.sources = context.getSources();
-		this.resultsFile = resultsFile;
+		
+		//Obtained from the first pass where all the models are found
 		this.modelResults = JsonUtils.loadFirstPassResultFile(resultsFile);
 	}
 	
 	public List<String> findHiddenData(){
 		
-		if (results == null){
-			return Collections.emptyList();
-		}
-		
 		List<String> hiddenValues = new ArrayList<String>();
-		Set<String> foundSources = new HashSet<String>();
 		
-		/*
-		 * There are currently 4 different types of flows
-		 * 
-		 * fromJson -> UI element 	If this is found nothing more is needed
-		 * 
-		 * List()   -> UI element	
-		 * fromJson -> List.add()	Is this list that is added the same as the list who has a path to a UI element?
-		 */
-		//Just add all the signatures of the sources into a list
-		for (ResultSinkInfo foundSink : results.getResults().keySet()) {
-			
-			
-			for (ResultSourceInfo foundSource : results.getResults().get(foundSink)) {
+		if (results != null){
+			Set<String> foundSources = new HashSet<String>();
+
+			/*
+			 * There are currently 4 different types of flows
+			 * 
+			 * fromJson -> UI element 	If this is found nothing more is needed
+			 * 
+			 * List()   -> UI element	
+			 * fromJson -> List.add()	Is this list that is added the same as the list who has a path to a UI element?
+			 */
+			//Just add all the signatures of the sources into a list
+			for (ResultSinkInfo foundSink : results.getResults().keySet()) {
 				
-				//Make sure its form original source
-				if (isOriginalSource(foundSource.getSource().toString())){
 				
+				for (ResultSourceInfo foundSource : results.getResults().get(foundSink)) {
 					
-					//TODO need to filter out possible false positives from List of model not derived from network
-					//if (isDeserializeToUIFlow(foundSink, foundSource)){
-						
-						//Once we have the 
-						Stmt stmt = foundSource.getSource();
-						foundSources.add(stmt.toString());
-						
-						foundSources.addAll(getTaintedModelMethodFromFlow(foundSource));
-					//} else {
+					//Make sure its form original source
+					if (isOriginalSource(foundSource.getSource().toString())){
+					
+						//TODO need to filter out possible false positives from List of model not derived from network
+						//if (isDeserializeToUIFlow(foundSink, foundSource)){
+							//Once we have the 
+							Stmt stmt = foundSource.getSource();
+							//foundSources.add(stmt.toString());
+							foundSources.addAll(getTaintedModelMethodFromFlow(foundSource));
+						//} else {
+							
+						//}
+					//Make sure its form original source
+					//if (isOriginalSource(foundJsonSources.getSource().toString())){
 						
 					//}
-				//Make sure its form original source
-				//if (isOriginalSource(foundJsonSources.getSource().toString())){
-					
-				//}
+					}
 				}
 			}
+			
+			//From all of the method signatures, remove the ones we found
+			//whats left is hidden
+			for (String f : foundSources ){
+				logger.info("Method used! {}", f);
+				modelResults.getGetMethodSignatures().remove(f);
+			}
+			
 		}
-		
-		//This is old because now we dont have all the separate methods for the
-		//model class as sources
-//		Iterator<SourceSinkDefinition> it = sources.iterator();
-//		List<String> jsonSourceList = new ArrayList<String>();
-//		while (it.hasNext()){
-//			SourceSinkDefinition def = it.next();
-//			String signature = def.toString();
-//			jsonSourceList.add(signature);
-//			if (!found(foundSources, signature)){
-//				hiddenValues.add(signature);
-//			}
-//		}
-		
-		
-		//From all of the method signatures, remove the ones we found
-		//whats left is hidden
-		for (String f : foundSources ){
-			modelResults.getGetMethodSignatures().remove(f);
-		}
-		
-		
-		//We need to compare all the get methods in the model to the ones actually found
-		//to see which are hidden
-		
 		for (String hidden : modelResults.getGetMethodSignatures()){
 			logger.info("HIDDEN {}", hidden);
 		}
-		
-		//Now look throughout the application and find the actual uses
-		//ValidateFlows val = new ValidateFlows(context, jsonSourceList);
-		//val.validate();
-		//HashMap<String, Integer> references = val.getResults();
-		
-		//displayResults(references, hiddenValues);
-		
 		
 		return hiddenValues;
 	}
@@ -167,7 +136,6 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 			
 			if (signature != null){
 				if (modelResults.getGetMethodSignatures().contains(signature)){
-					logger.info("Method used! {}", signature);
 					//return signature;
 					tainted.add(signature);
 				}

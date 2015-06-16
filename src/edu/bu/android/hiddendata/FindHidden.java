@@ -41,6 +41,7 @@ import soot.SootClass;
 import soot.Unit;
 import soot.jimple.Stmt;
 import soot.jimple.infoflow.IInfoflow.CallgraphAlgorithm;
+import soot.jimple.infoflow.Infoflow;
 import soot.jimple.infoflow.android.SetupApplication;
 import soot.jimple.infoflow.android.source.AndroidSourceSinkManager.LayoutMatchingMode;
 import soot.jimple.infoflow.data.pathBuilders.DefaultPathBuilderFactory.PathBuilder;
@@ -91,24 +92,15 @@ public class FindHidden {
 	private static String summaryPath = "";
 	private static PathBuilder pathBuilder = PathBuilder.ContextInsensitiveSourceFinder;
 	private static boolean useFragments = false;
-	
+
 	private static CallgraphAlgorithm callgraphAlgorithm = CallgraphAlgorithm.AutomaticSelection;
 	
-	private static boolean DEBUG = false;
-
-	private static IIPCManager ipcManager = null;
+	private static boolean DEBUG = true;
 	
 	
 	private static Mode mode;
 
-	public static void setIPCManager(IIPCManager ipcManager)
-	{
-		FindHidden.ipcManager = ipcManager;
-	}
-	public static IIPCManager getIPCManager()
-	{
-		return FindHidden.ipcManager;
-	}
+
 	
 	/**
 	 * @param args Program arguments. args[0] = path to apk-file,
@@ -197,67 +189,117 @@ public class FindHidden {
 			
 			//If the file already exists then do the second pass
 			if (apkResult1Dir.exists()){
-				logger.warn("Second pass source-sink file exists, starting from there.");
-				sourcesAndSinksFilePath = new File(apkResult1Dir, sourceAndSinkFileName).getAbsolutePath();
-				easyTaintFilePath = new File(apkResult1Dir, easyTaintFileName ).getAbsolutePath();
-				File resultsFile = new File(apkResult1Dir, apkFileName + FindHidden.RESULTS_SUFFIX );
-				injectionsFilePath = resultsFile.getAbsolutePath();
 				mode = Mode.DESERIALIZE_TO_UI;
 			} else {
 				apkResult1Dir.mkdirs();
-				//Keep the source sink and easy taint default
 				mode = Mode.NETWORK_TO_DESERIALIZE;
 			}
 			
 			
-			logger.info("Using " + sourcesAndSinksFilePath + " as source-sink file.");
 			
 			
 			
 			AnalysisResults results = null;
 			
-			// Run the analysis
-			if (timeout > 0)
-				runAnalysisTimeout(fullFilePath, args[1]);
-			else if (sysTimeout > 0)
-				runAnalysisSysTimeout(fullFilePath, args[1]);
-			else
-				results = runAnalysis(fullFilePath, args[1]);
+			File sourceSinkFileList = new File(apkResult1Dir, apkFileName + "-sources_sinks2.txt");
 
-				
-			File updatedSourceSinkFile = new File(apkResult1Dir, sourceAndSinkFileName);
+			File sourceSinkFileDeserializeToUI = new File(apkResult1Dir, sourceAndSinkFileName);
+			File easyTaintFileDeserializeToUI  = new File(apkResult1Dir, easyTaintFileName );
 			File resultsFile = new File(apkResult1Dir, apkFileName + FindHidden.RESULTS_SUFFIX );
-			injectionsFilePath = resultsFile.getAbsolutePath();
-			
-			//This is our first pass so process the results to find what the 
-			//next sources should be 
-			if (mode == Mode.NETWORK_TO_DESERIALIZE){
-				NetworkToDeserializeFlowAnalyzer pass1 = new NetworkToDeserializeFlowAnalyzer(results.context,  updatedSourceSinkFile, results.infoFlowResults);
-				pass1.process();
-				
-				//Now use these values for the second pass 
-				sourcesAndSinksFilePath = updatedSourceSinkFile.getAbsolutePath();
-				easyTaintFilePath = pass1.getEasyTaintWrapperFile().getAbsolutePath();
-				System.gc();
 
-				// Run the analysis
-				if (timeout > 0)
-					runAnalysisTimeout(fullFilePath, args[1]);
-				else if (sysTimeout > 0)
-					runAnalysisSysTimeout(fullFilePath, args[1]);
-				else
-					results = runAnalysis(fullFilePath, args[1]);	
+			final long beforeRun = System.nanoTime();
+
+			switch (mode){
+				case NETWORK_TO_DESERIALIZE: {
+					
+					logger.info("=========================================");
+					logger.info("Pass 1: Network to deserializer");
+					logger.info("=========================================");
+
+					//Keep the source sink and easy taint default
+					Infoflow.setPathAgnosticResults(true);
+
+					logger.info("Using " + sourcesAndSinksFilePath + " as source-sink file.");
+
+					// Run the analysis using defaults 
+					results = run(fullFilePath, args[1]);
+
+					if (results.infoFlowResults == null){
+						logger.error("Could not find any flows from Network to Deserialize, cannot continue");
+						return;
+					}
+					
+					//Create source sink for next pass as well
+					NetworkToDeserializeFlowAnalyzer pass1 = new NetworkToDeserializeFlowAnalyzer(results.context,  sourceSinkFileDeserializeToUI, sourceSinkFileList, easyTaintFileDeserializeToUI,  results.infoFlowResults);
+					pass1.process();
+					
+
+					System.gc();
+
+					//Only do an additional pass if there were some instances where the model classes were added to lists
+					//if (!pass1.getModelToAddSignatureMapping().isEmpty()){
+						
+						logger.info("=========================================");
+						logger.info("Pass 1.5: Lists to List.add");
+						logger.info("=========================================");
+
+						//Note: I dont believe this needs agnositic should be false because
+						//we only need to location the source here for the injection
+						sourcesAndSinksFilePath = sourceSinkFileList.getAbsolutePath();
+						easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
+
+						results = run(fullFilePath, args[1]);
+						ListAnalyzer la = new ListAnalyzer(results.context, results.infoFlowResults, pass1, resultsFile);
+						la.process();
+						System.gc();
+					//} else {
+					//	logger.warn("No models were found being added to lists");
+					//}
+
+				}
+				
+				case DESERIALIZE_TO_UI: {
+					logger.info("=========================================");
+					logger.info("Pass 2: Deserializer to UI");
+					logger.info("=========================================");
+
+
+					Infoflow.setPathAgnosticResults(false);
+					injectionsFilePath = resultsFile.getAbsolutePath();
+					
+					sourcesAndSinksFilePath = sourceSinkFileDeserializeToUI.getAbsolutePath();
+					easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
+
+					logger.info("Using " + sourcesAndSinksFilePath + " as source-sink file.");
+
+					// Run the analysis
+					results = run(fullFilePath, args[1]);
+					
+					//Now we are done so we need to figure out where we didnt have mappings
+					new DeserializeToUiFlowAnalyzer(resultsFile, results.context, results.infoFlowResults).findHiddenData();
+						
+				}
 			}
-			
-			//Now we are done so we need to figure out where we didnt have mappings
-			new DeserializeToUiFlowAnalyzer(resultsFile, results.context, results.infoFlowResults).findHiddenData();
-			
-			
+
+			System.out.println("Analysis has run for " + (System.nanoTime() - beforeRun) / 1E9 + " seconds");
+
 			System.gc();
 
 			
-		}
+		} //end for 
 	}
+	private static AnalysisResults run(String path, String args){
+		AnalysisResults results = null;
+		if (timeout > 0)
+			runAnalysisTimeout(path, args);
+		else if (sysTimeout > 0)
+			runAnalysisSysTimeout(path, args);
+		else
+			results = runAnalysis(path, args);
+		
+		return results;
+	}
+	
 	
 	/**
 	 * When callbacks are enabled flows that are not intentional are found. I think this is due
@@ -493,7 +535,9 @@ public class FindHidden {
 				flowSensitiveAliasing ? "--aliasflowsens" : "--aliasflowins",
 				computeResultPaths ? "--paths" : "--nopaths",
 				aggressiveTaintWrapper ? "--aggressivetw" : "--nonaggressivetw",
-				"--pathalgo", pathAlgorithmToString(pathBuilder) };
+				"--pathalgo", pathAlgorithmToString(pathBuilder),
+				"--SOURCESSINKS", sourcesAndSinksFilePath,
+				"--EASYTAINT", easyTaintFilePath};
 		System.out.println("Running command: " + executable + " " + Arrays.toString(command));
 		try {
 			ProcessBuilder pb = new ProcessBuilder(command);
@@ -556,17 +600,8 @@ public class FindHidden {
 	
 	private static AnalysisResults runAnalysis(final String fileName, final String androidJar) {
 		try {
-			final long beforeRun = System.nanoTime();
 
-			final SetupApplication app;
-			if (null == ipcManager)
-			{
-				app = new SetupApplication(androidJar, fileName);
-			}
-			else
-			{
-				app = new SetupApplication(androidJar, fileName, ipcManager);
-			}
+			final SetupApplication	app = new SetupApplication(androidJar, fileName);
 
 			app.setStopAfterFirstFlow(stopAfterFirstFlow);
 			app.setEnableImplicitFlows(implicitFlows);
@@ -581,24 +616,22 @@ public class FindHidden {
 			app.setUseFragments(useFragments);
 			app.setInjectionsFilePath(injectionsFilePath);
 			final ITaintPropagationWrapper taintWrapper;
-			if (librarySummaryTaintWrapper) {
-				taintWrapper = createLibrarySummaryTW();
-			}
-			else {
-				
-				//Create a new file from this string paramter
-				final EasyTaintWrapper easyTaintWrapper;
-				if (easyTaintFilePath != null)
-					easyTaintWrapper = new EasyTaintWrapper(easyTaintFilePath);
-				else if (new File("../soot-infoflow/EasyTaintWrapperSource.txt").exists())
-					easyTaintWrapper = new EasyTaintWrapper("../soot-infoflow/EasyTaintWrapperSource.txt");
-				else
-					easyTaintWrapper = new EasyTaintWrapper("EasyTaintWrapperSource.txt");
-				easyTaintWrapper.setAggressiveMode(aggressiveTaintWrapper);
-				taintWrapper = easyTaintWrapper;
-			}
+	
+			//Create a new file from this string paramter
+			final EasyTaintWrapper easyTaintWrapper;
+			if (easyTaintFilePath != null)
+				easyTaintWrapper = new EasyTaintWrapper(easyTaintFilePath);
+			else if (new File("../soot-infoflow/EasyTaintWrapperSource.txt").exists())
+				easyTaintWrapper = new EasyTaintWrapper("../soot-infoflow/EasyTaintWrapperSource.txt");
+			else
+				easyTaintWrapper = new EasyTaintWrapper("EasyTaintWrapperSource.txt");
+			easyTaintWrapper.setAggressiveMode(aggressiveTaintWrapper);
+			taintWrapper = easyTaintWrapper;
+		
 			
 			app.addPreprocessor(new RewireFlow(injectionsFilePath));
+			
+			
 			app.setTaintWrapper(taintWrapper);
 			app.calculateSourcesSinksEntrypoints(sourcesAndSinksFilePath);
 			//app.calculateSourcesSinksEntrypoints("SuSiExport.xml");
@@ -608,15 +641,18 @@ public class FindHidden {
 				app.printEntrypoints();
 				app.printSinks();
 				app.printSources();
+				
+				app.addPreprocessor(new DebugHelp());
 			}
 				
 			System.out.println("Running data flow analysis...");
 			final InfoflowResults res = app.runInfoflow();
-			System.out.println("Analysis has run for " + (System.nanoTime() - beforeRun) / 1E9 + " seconds");
+			
 			AnalysisResults r = new AnalysisResults();
 			r.context = app;
 			r.infoFlowResults = res;
 			return r;
+			
 		} catch (IOException ex) {
 			System.err.println("Could not read file: " + ex.getMessage());
 			ex.printStackTrace();
@@ -628,44 +664,7 @@ public class FindHidden {
 		}
 	}
 	
-	/**
-	 * Creates the taint wrapper for using library summaries
-	 * @return The taint wrapper for using library summaries
-	 * @throws IOException Thrown if one of the required files could not be read
-	 */
-	@SuppressWarnings({ "rawtypes", "unchecked" })
-	private static ITaintPropagationWrapper createLibrarySummaryTW()
-			throws IOException {
-		try {
-			Class clzLazySummary = Class.forName("soot.jimple.infoflow.methodSummary.data.impl.LazySummary");
-			
-			Object lazySummary = clzLazySummary.getConstructor(File.class).newInstance(new File(summaryPath));
-			
-			ITaintPropagationWrapper summaryWrapper = (ITaintPropagationWrapper) Class.forName
-					("soot.jimple.infoflow.methodSummary.taintWrappers.SummaryTaintWrapper").getConstructor
-					(clzLazySummary).newInstance(lazySummary);
-			
-			final TaintWrapperSet taintWrapperSet = new TaintWrapperSet();
-			taintWrapperSet.addWrapper(summaryWrapper);
-			taintWrapperSet.addWrapper(new EasyTaintWrapper("EasyTaintWrapperConversion.txt"));
-			return taintWrapperSet;
-		}
-		catch (ClassNotFoundException | NoSuchMethodException ex) {
-			System.err.println("Could not find library summary classes: " + ex.getMessage());
-			ex.printStackTrace();
-			return null;
-		}
-		catch (InvocationTargetException ex) {
-			System.err.println("Could not initialize library summaries: " + ex.getMessage());
-			ex.printStackTrace();
-			return null;
-		}
-		catch (IllegalAccessException | InstantiationException ex) {
-			System.err.println("Internal error in library summary initialization: " + ex.getMessage());
-			ex.printStackTrace();
-			return null;
-		}
-	}
+
 //TODO need a proper parsing library for this
 	private static void printUsage() {
 		System.out.println("FlowDroid (c) Secure Software Engineering Group @ EC SPRIDE");
@@ -688,7 +687,6 @@ public class FindHidden {
 		System.out.println("\t--PATHALGO Use path reconstruction algorithm x");
 		System.out.println("\t--LIBSUMTW Use library summary taint wrapper");
 		System.out.println("\t--FRAGMENTS Enable use of Fragments, not enabled by default");
-		System.out.println("\t--SUMMARYPATH Path to library summaries");
 		System.out.println("\t--SOURCESSINKS Full path of SourcesAndSinks.txt");
 		System.out.println("\t--EASYTAINT Full path of easy taint wrapper file.");
 		System.out.println();

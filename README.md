@@ -10,6 +10,16 @@ sources-sinks/SourcesAndSinks_<apk name>.txt
 EasyTaintWrapperSource-bootstrap.txt
 parameter-index-lookup.json
 
+
+#Coverage
+##ListViews and Adapters
+* Model is extracted from the fromJson method
+* All constructors of Lists of this model type are located (by first finding flows from List constructor to add method) and then a model
+is added to the list to force taint of the list
+* The model is also added as a source
+* If it is reported that a flow is found from this source AND fromJson then check to see if they have the same source. If so we can infer that the list was used but can extract the object params from the flow with the model
+* When model source is tainted it will also allow for the path to be extracted.
+
 #Deserializing
 
 ##Gson
@@ -62,6 +72,10 @@ There is a JCastExpr value, the assignment is what needs to be tainted. This mus
 	Build inheritance graph possibly
 	-It seems the getView of the adapter is called when the view is first displayed from onLayout
 	and whenever the notifyDataSetChanged method is called which triggers the view to be recalculated?
+
+*Generics
+	If a model set type is Object then look for instances of it in the code and then extract the object
+
 
 #UI element issues
 * If defined doesnt mean its actually used. Does it come from findviewbyid

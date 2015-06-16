@@ -13,7 +13,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import edu.bu.android.hiddendata.model.FirstPassResult;
+import edu.bu.android.hiddendata.model.DeserializeToUIConfig;
 import edu.bu.android.hiddendata.model.InjectionPoint;
 import edu.bu.android.hiddendata.model.JsonUtils;
 import soot.Body;
@@ -63,7 +63,9 @@ public class RewireFlow implements PreAnalysisHandler {
 	private final Logger logger = LoggerFactory.getLogger(getClass());
 
 	private static final String LISTVIEW_SETADAPTER_SIGNATURE = "<android.widget.ListView: void setAdapter(android.widget.ListAdapter)>";
-	private static final String LISTVIEW_NOTIFYCHANGE_SIGNATURE = "void notifyDataSetChanged()";
+	private static final String NOTIFYCHANGE_SUBSIGNATURE = "void notifyDataSetChanged()";
+	
+	private static final String PAGEVIEW_SETADAPTER_SIGNATURE = "<android.support.v4.view.ViewPager: void setAdapter(android.support.v4.view.PagerAdapter)>";
 	private List<String> asyncTaskClasses = new ArrayList<String>();
 	
 	private List<String> activityOrFragmentClasses = new ArrayList<String>();
@@ -108,9 +110,10 @@ public class RewireFlow implements PreAnalysisHandler {
 		}
 	}
 	
-	
+	boolean patched = false;
+
 	private void injectCode(){
-		FirstPassResult modelResults = JsonUtils.loadFirstPassResultFile(new File(injectionsFilePath));
+		DeserializeToUIConfig modelResults = JsonUtils.loadFirstPassResultFile(new File(injectionsFilePath));
 		for (final InjectionPoint inject : modelResults.getInjections()){
 			SootClass sootClass = Scene.v().getSootClass(inject.getDeclaredClass());
 			SootMethod method = sootClass.getMethodUnsafe(inject.getMethodSignature());
@@ -118,7 +121,7 @@ public class RewireFlow implements PreAnalysisHandler {
 			final Body body = method.retrieveActiveBody();
 			final PatchingChain<Unit> units = body.getUnits();
 			final LocalGenerator generator = new LocalGenerator(body);
-
+			patched = false;
 			for(Iterator<Unit> iter = units.snapshotIterator(); iter.hasNext();) {
 				final Unit u = iter.next();
 				u.apply(new AbstractStmtSwitch() {
@@ -128,17 +131,14 @@ public class RewireFlow implements PreAnalysisHandler {
 						 
 						 if (obj.toString().equals(inject.getTargetInstruction())){
 							 
-							 logger.info("yay made it here");
 							 if (obj instanceof InvokeStmt){
 								 
 								 List<Unit> chainToInsert = new ArrayList<Unit>();
 								 InvokeStmt invokeStmt = (InvokeStmt) obj;
-								 SpecialInvokeExpr expr = (SpecialInvokeExpr) invokeStmt.getInvokeExprBox().getValue();
-
-								 
+								 SpecialInvokeExpr expr = (SpecialInvokeExpr) invokeStmt.getInvokeExprBox().getValue();					 
 								 
 					    		//Create new constructor for model
-					    		SootClass classToInject = Scene.v().getSootClassUnsafe(inject.getClassToInject());
+					    		SootClass classToInject = Scene.v().getSootClassUnsafe(inject.getClassNameToInject());
 					    		SootMethod getViewMethod = classToInject.getMethodUnsafe("void <init>()");
 					    			
 	
@@ -166,6 +166,7 @@ public class RewireFlow implements PreAnalysisHandler {
 					    		
 					    		//Patch
 					    		units.insertAfter(chainToInsert, invokeStmt);
+					    		patched = true;
 							 }
 						    		
 						 }
@@ -175,12 +176,15 @@ public class RewireFlow implements PreAnalysisHandler {
 				});
 			}
 			
-			logger.debug("{}", method.retrieveActiveBody());
+			//if (patched){
+			//}
 
 		}
 	}
 	
-	
+	private void pageViewRewire(){
+		
+	}
 
 	
 	/**
@@ -217,23 +221,7 @@ public class RewireFlow implements PreAnalysisHandler {
 		}
 		return null;
 	}
-	private Local getLocal(SootClass sc, Body b){
-		/*
-		LocalGenerator generator = new LocalGenerator(body);
-		ThisRef thisRef = Jimple.v().newThisRef(c.getType());
-		
-		Local l = generator.generateLocal(thisRef.getType());
-		*/
-		Local thisLocal = Jimple.v().newLocal("$r0", sc.getType());
-		
-		/*
-		Local thisLocal = Jimple.v().newLocal("this", sc.getType());
-		b.getLocals().add(thisLocal);
-		b.getUnits().addFirst(Jimple.v().newIdentityStmt(thisLocal,
-				Jimple.v().newThisRef(sc.getType())));
-		*/
-		return thisLocal;
-	}
+
 	private void rewireDoInBackground(SootClass currentClass, final SootMethod doInBackgroundMethod){
 		
 		final Body body = doInBackgroundMethod.retrieveActiveBody();
@@ -266,6 +254,7 @@ public class RewireFlow implements PreAnalysisHandler {
 		//First get all postexecute methods. One will be super, other implemented
 		for (SootMethod method : methods){
 			if (method.getName().startsWith("onPostExecute")){
+				logger.debug("onPostExecute {}", method.getSignature());
 		    	onPostExecuteMethods.add(method);
 			}
 		}
@@ -273,6 +262,7 @@ public class RewireFlow implements PreAnalysisHandler {
 			for (SootMethod method : methods){
 				//TODO replace with get by subsignature?
 				if (!method.isAbstract() && method.getName().startsWith("doInBackground")){
+					logger.debug("doInBackground {}", method.getSignature());
 					rewireDoInBackground(currentClass, method);
 				}
 			}
@@ -301,14 +291,23 @@ public class RewireFlow implements PreAnalysisHandler {
 					    		
 					    		//Create the arguments for the method call
 	
-					    		List<Value> args = new ArrayList<Value>();
-					    		args.add(IntConstant.v(0));
-					    		args.add(NullConstant.v());
-					    		args.add(NullConstant.v());
+					    		List<Value> getViewArgs = new ArrayList<Value>();
+					    		getViewArgs.add(IntConstant.v(0));
+					    		getViewArgs.add(NullConstant.v());
+					    		getViewArgs.add(NullConstant.v());
+					    		
+					    		List<Value> instantiateItemArgs = new ArrayList<Value>();
+					    		instantiateItemArgs.add(NullConstant.v());
+					    		instantiateItemArgs.add(IntConstant.v(0));
 					    		
 					    		//Get method we want to call, need to a local reference so need to wait to create expression
 					    		SootClass adapter = Scene.v().getSootClassUnsafe("android.widget.Adapter");
 					    		SootMethod getViewMethod = adapter.getMethodUnsafe("android.view.View getView(int,android.view.View,android.view.ViewGroup)");
+					    		
+					    		SootClass pageViewAdapter = Scene.v().getSootClassUnsafe("android.support.v4.view.ViewPager");
+					    		SootMethod instantiateItemMethod = pageViewAdapter.getMethodUnsafe("java.lang.Object instantiateItem(android.view.ViewGroup,int)");
+					    		
+					    		
 					    		
 					    		//Look for when adapter is set
 					    		if (expr.getMethodRef().getSignature().equals(LISTVIEW_SETADAPTER_SIGNATURE)){
@@ -316,21 +315,40 @@ public class RewireFlow implements PreAnalysisHandler {
 					    			Value argValue = expr.getArgBox(0).getValue();
 					    			
 						    		//Create the call to view
-						    		InterfaceInvokeExpr getViewStmt = Jimple.v().newInterfaceInvokeExpr((Local)argValue, getViewMethod.makeRef(), args);
+						    		InterfaceInvokeExpr getViewStmt = Jimple.v().newInterfaceInvokeExpr((Local)argValue, getViewMethod.makeRef(), getViewArgs);
 						    		
 						    		//Patch
 						    		units.insertAfter(Jimple.v().newInvokeStmt(getViewStmt), stmt);
 						    		
-					    		} else if (expr.getMethodRef().getSubSignature().getString().equals(LISTVIEW_NOTIFYCHANGE_SIGNATURE)){
+						    	//There is a notifydatasetchange for the PagerAdapter and BaseAdapter classes
+					    		} else if (expr.getMethodRef().getSubSignature().getString().equals(NOTIFYCHANGE_SUBSIGNATURE)){
+					    			
 					    			//TODO should make sure this is of BaseAdapter
 					    			//expr.getMethodRef().declaringClass()
 					    			Value refValu = expr.getBaseBox().getValue();
 					    			
-					    			//Create the call to view
-						    		InterfaceInvokeExpr getViewStmt = Jimple.v().newInterfaceInvokeExpr((Local)refValu, getViewMethod.makeRef(), args);
-						    		
+					    			InterfaceInvokeExpr getViewStmt;
+					    			//Look to find out what the callee is
+					    			if (hasSuperClass(expr.getMethodRef().declaringClass(), Collections.singletonList("android.support.v4.view.PagerAdapter"))){
+					    				getViewStmt = Jimple.v().newInterfaceInvokeExpr((Local)refValu, instantiateItemMethod.makeRef(), instantiateItemArgs);
+
+					    			} else {
+					    				//Create the call to view
+					    				getViewStmt = Jimple.v().newInterfaceInvokeExpr((Local)refValu, getViewMethod.makeRef(), getViewArgs);
+							    	}
+					    			
+					    			
+					    			
 						    		//Patch
 						    		units.insertAfter(Jimple.v().newInvokeStmt(getViewStmt), stmt);
+						    		
+					    		} else if (expr.getMethodRef().getSignature().equals(PAGEVIEW_SETADAPTER_SIGNATURE)){
+					    			Value argValue = expr.getArgBox(0).getValue();	
+						    		//Create the call to view
+						    		InterfaceInvokeExpr invokeExpr = Jimple.v().newInterfaceInvokeExpr((Local)argValue, instantiateItemMethod.makeRef(), instantiateItemArgs);
+						    		
+						    		//Patch
+						    		units.insertAfter(Jimple.v().newInvokeStmt(invokeExpr), stmt);
 						    		
 					    		}
 					    		
@@ -339,7 +357,7 @@ public class RewireFlow implements PreAnalysisHandler {
 					    }
 					});
 				}
-				logger.debug("{}", method.retrieveActiveBody());
+				//logger.debug("{}", method.retrieveActiveBody());
 			} catch (Exception e){
 				continue;
 			}
@@ -347,6 +365,7 @@ public class RewireFlow implements PreAnalysisHandler {
 	}
 	
 	private void asyncTaskRewireTransformer(){
+		logger.info("Performing Async patching...");
 		for (String className : asyncTaskClasses) {
 			SootClass sootClass = Scene.v().getSootClass(className);
 			//SootClass sootClass = Scene.v().forceResolve(className, SootClass.BODIES);

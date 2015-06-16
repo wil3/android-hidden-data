@@ -29,10 +29,14 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
+import edu.bu.android.hiddendata.FlowAnalyzer.ListFlow;
 import edu.bu.android.hiddendata.ModelExtraction.OnExtractionHandler;
-import edu.bu.android.hiddendata.model.FirstPassResult;
+import edu.bu.android.hiddendata.model.DeserializeToUIConfig;
 import edu.bu.android.hiddendata.model.InjectionPoint;
+import edu.bu.android.hiddendata.model.JsonUtils;
 import edu.bu.android.hiddendata.model.Model;
+import soot.Body;
+import soot.PatchingChain;
 import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
@@ -41,6 +45,8 @@ import soot.Type;
 import soot.Unit;
 import soot.Value;
 import soot.ValueBox;
+import soot.VoidType;
+import soot.javaToJimple.LocalGenerator;
 import soot.jimple.AbstractStmtSwitch;
 import soot.jimple.AssignStmt;
 import soot.jimple.ClassConstant;
@@ -56,6 +62,7 @@ import soot.jimple.infoflow.results.ResultSourceInfo;
 import soot.jimple.internal.AbstractInvokeExpr;
 import soot.jimple.internal.JInterfaceInvokeExpr;
 import soot.jimple.internal.JimpleLocal;
+import soot.util.Chain;
 
 /**
  * Process the results of the flow analysis from network connections to JSON deserialization.
@@ -76,15 +83,25 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 	private File sourcesAndSinksFile;
 	private File easyTaintWrapperFile;
 	private File resultsFile;
+	HashMap<String, String> signatureToModelMapping = new HashMap<String, String>();
+
+	public HashMap<String, String> getModelToAddSignatureMapping() {
+		return signatureToModelMapping;
+	}
+
+
+	private File sourcesAndSinksListFile;
 	
-	
-	public NetworkToDeserializeFlowAnalyzer(SetupApplication context, File sourcesAndSinksFile, InfoflowResults results){
+	public NetworkToDeserializeFlowAnalyzer(SetupApplication context, File sourcesAndSinksFile, File sourceAndSinkListFile, File easyTaintFile,  InfoflowResults results){
 		super(context);
 		this.apkFileName = new File(context.getApkFileLocation()).getName();
 		this.results = results;
 		this.sourcesAndSinksFile = sourcesAndSinksFile;
-		this.easyTaintWrapperFile = new File(sourcesAndSinksFile.getParentFile(), apkFileName + FindHidden.EASY_TAINT_WRAPPER_FILE_PREFIX);
+		this.easyTaintWrapperFile = easyTaintFile;
 		this.resultsFile = new File(sourcesAndSinksFile.getParentFile(),apkFileName + FindHidden.RESULTS_SUFFIX );
+		
+		this.sourcesAndSinksListFile = sourceAndSinkListFile;
+		
 		//TODO stick in config file
 		modelParameterIndexLookup.put("<com.google.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)>", 1);
 		modelParameterIndexLookup.put("<com.google.gson.Gson: java.lang.Object fromJson(com.google.gson.JsonElement,java.lang.Class)>", 1);
@@ -105,12 +122,12 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		HashMap<String, ListFlow> addMethodParameterClassNames = new HashMap<String, ListFlow>();
 		Set<String> modelClassNames = new HashSet<String>();
 
-		List<String> sourceSignatures = new ArrayList<String>();
+		Set<String> sourceSignatures = new HashSet<String>();
 		
 		for (ResultSinkInfo sink : results.getResults().keySet()) {
 			Stmt sinkStmt = sink.getSink();
 			
-			int type = 0;
+			boolean isDeserializeSink = false;
 			//Look at the sources and see which are actually specified in our source sink file
 			//so we can filter out possible onces found from the callbacks enabled
 			for (ResultSourceInfo source : results.getResults().get(sink)) {
@@ -118,26 +135,24 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 				//Make sure its form original source
 				if (isOriginalSource(source.getSource().toString())){
 					
+					/*
 					if (isListFlow(sink, source)){
 						ListFlow listFlow = new ListFlow();
 						listFlow.source = source;
 						listFlow.sink = sink;
 						String addClassName = extractClassFromListAdd(sink.getSink());
 						addMethodParameterClassNames.put(addClassName, listFlow);
-						type = 1;
-					} else { //for right now its actual network to deserialize flows
-						type = 2;
+						//isDeserializeSink = false;
+					} else {
+						isDeserializeSink = true;
 					}
-					
-					//Only the sources are bizarre so break if you find one
-//					break;
+					 */
+					isDeserializeSink = true;
+
 				}
 			}
 			
-			//Is the sink a non-list flow?
-			switch (type){
-				case 2: {
-				
+			if (isDeserializeSink){
 					//Get the sink and add to file for next pass. We can use the entire method call
 					//because soot will track taint of the casting
 					
@@ -146,24 +161,23 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 					//Extract the model class from the deserialize method call so we can compare it 
 					//to list objects
 					modelClassNames.add(extractModelClassName(sinkStmt));
-				}
-				default: {
-					//not sure yet
-				}
 			}
 			
 			
 			
 		}
 		
-		List<InjectionPoint> injections = new ArrayList<InjectionPoint>();
-		List<String> sinkSignatures = new ArrayList<String>();
+		Set<InjectionPoint> injections = new HashSet<InjectionPoint>();
+		Set<String> sinkSignatures = new HashSet<String>();
+		
+		
 		//Now finish up
 		//Look at all the objects extracted from List.add(java.lang.Object) and Model Objects
 		//we want to use them in our next pass if they use the model objects
 		
 		//We are going to try to not do this and instead force taint where there is a list constructor
 		
+		/*
 		Iterator<String> it = addMethodParameterClassNames.keySet().iterator();
 		while(it.hasNext()){
 			String addMethodParameterClassName = it.next();
@@ -174,21 +188,22 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 				//sinkSignatures.add(makeSignature(resultInfo.sink));
 				
 				
-				//Get the origin List constructor location and save this so we can inject a constructor
-				//in the next pass
+				//Right after a List constructor
+				//Inject list.add(new Model())
+				//TODO need to add line number to differentiat between mutlple targets
 				InjectionPoint inject = new InjectionPoint();
 				inject.setDeclaredClass(resultInfo.source.getDeclaringClass().getName());
 				inject.setTargetInstruction(resultInfo.source.getStmt().toString());
 				inject.setMethodSignature(resultInfo.source.getMethod().getSubSignature());
-				inject.setClassToInject(addMethodParameterClassName);
+				inject.setClassNameToInject(addMethodParameterClassName);
 				injections.add(inject);
 			}
 		}
+		*/
 		
-		
-		FirstPassResult result = new FirstPassResult();
+		DeserializeToUIConfig result = new DeserializeToUIConfig();
 		List<Model> models = new ArrayList<Model>();
-		final List<String> modelMethodSignatures = new ArrayList<String>();
+		final Set<String> modelMethodSignatures = new HashSet<String>();
 
 		//Now that we have all the base models, analyze each
 		//and get any other models they reference
@@ -203,7 +218,9 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 			public void onMethodExtracted(SootClass sootClass, SootMethod method) {
 				
 				String methodName = method.getName();
-				if (shouldAcceptMethod(methodName)){
+				if (!(method.getReturnType() instanceof VoidType)) {
+
+				//if (shouldAcceptMethod(methodName)){
 					modelMethodSignatures.add(method.getSignature());
 
 				}
@@ -220,30 +237,124 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 			}
 		});
 		
+		
 		//Make the default constructors for the model classes found 
 		//and also find all other associated models
-		List<String> allModels = new ArrayList<String>();
+		Set<String> allModels = new HashSet<String>();
 		for (String model : modelClassNames){
 			allModels.addAll(me.getModels(model));
 			sourceSignatures.add(makeDefaultSignatureConstructor(model));
 		}
 		
+		Set<String> listConstructorSources = new HashSet<String>();
+		Set<String> listAddModelSignatures = findAddMethods(listConstructorSources, allModels);
+		createSinkSourceFile("SourcesAndSinks_2.txt", sourcesAndSinksListFile, listConstructorSources, listAddModelSignatures);
+		
 		//Write out results to be used for next pass
 		result.setGetMethodSignatures(modelMethodSignatures);
 		result.setModelNames(allModels);
 		result.setInjections(injections);
-		writeResults(result);
+		JsonUtils.writeResults(resultsFile, result);
 		
 		createEasyTaintWrapperFile(allModels);
 		
 		//Now create a new sink source file for the next pass
-		createSinkSourceFile(sourceSignatures, sinkSignatures);
+		createSinkSourceFile("./Sinks_ui.txt", sourcesAndSinksFile, sourceSignatures, sinkSignatures);
 	
+	}
+	
+	/**
+	 * Create sigatures for all the add methods. We do this so we limit the number of sinks to this method
+	 * @param modelClassNames
+	 */
+	private  Set<String> findAddMethods(final Set<String> listConstructorSources , final Set<String> modelClassNames){
+		
+		final Set<String> addMethodSignatures = new HashSet<String>();
+		Chain<SootClass> classes = Scene.v().getClasses();
+		Iterator<SootClass> it = classes.iterator();
+		while (it.hasNext()){
+			final SootClass sc = it.next();
+			if (sc.toString().contains("ActivityBaseAdapterTest")){
+				int i=0;
+				//sc.setApplicationClass();
+
+			}
+			if (isAndroidFramework(sc.getName())){
+				continue;
+			}
+			boolean foundInMethod = false;
+			for (SootMethod method : sc.getMethods()){
+				if (!method.hasActiveBody()){
+					try {
+					method.retrieveActiveBody();
+					}catch (Exception e){
+						continue;
+					}
+				}
+				final Body body = method.retrieveActiveBody();
+				final PatchingChain<Unit> units = body.getUnits();
+				for(Iterator<Unit> iter = units.snapshotIterator(); iter.hasNext();) {
+					final Unit u = iter.next();
+					
+					Stmt stmt = (Stmt)u;
+					if (!isAddMethod(stmt) && !stmt.toString().contains("<java.util.ArrayList: void <init>()>")){
+						continue;
+					}
+					
+				 	String modelClassName = extractClassFromListAdd(stmt);
+				 	if (modelClassName != null && modelClassNames.contains(modelClassName)){
+				 		String sig = makeSignature(sc, stmt);
+				 		signatureToModelMapping.put(sig, modelClassName);
+				 		addMethodSignatures.add(sig);
+				 		//If we have one per method thats good for now 
+				 		foundInMethod = true;
+				 		break;
+				 		
+				 		
+				 	//If an addAll is used then the parameter is an Object and 
+				 	//we dont know its type
+				 	} else if (isAddMethod(stmt)){//its an addAll and we cant get the model
+				 		String sig = makeSignature(sc, stmt);
+				 		signatureToModelMapping.put(sig, modelClassName);
+				 		addMethodSignatures.add(sig);
+				 		foundInMethod = true;
+				 		break;
+				 	} else if (stmt.toString().contains("<java.util.ArrayList: void <init>()>")){
+				 		String sig = makeSignature(sc, stmt);
+				 		listConstructorSources.add(sig);
+				 	}
+				 	/*
+					u.apply(new AbstractStmtSwitch() {
+						
+						 public void defaultCase(Object obj)
+						    {
+							 	
+						    }
+					});*/
+				}
+				if (foundInMethod){ //For performance limit to one per class
+					//break;
+				}
+			}
+		}
+		return addMethodSignatures;
+	}
+	
+	
+	
+	private boolean isAddMethod(Stmt stmt){
+		return stmt.toString().contains("<java.util.List: boolean addAll(java.util.Collection)>") ||
+				stmt.toString().contains("<java.util.List: boolean add(java.lang.Object)>");
 	}
 
 	private String makeSignature(ResultInfo resultInfo){
 		Stmt stmt = resultInfo.getStmt();
-		String sinkClassName = resultInfo.getDeclaringClass().getName();
+
+		return makeSignature(resultInfo.getDeclaringClass(), stmt);
+	}
+	private String makeSignature(SootClass declaringClass, Stmt stmt){
+		String sinkClassName = declaringClass.getName();
+
 		int lineNumber = stmt.getJavaSourceStartLineNumber();
 		AndroidMethod am = new AndroidMethod(stmt.getInvokeExpr().getMethod());
 		am.setDeclaredClass(sinkClassName);
@@ -258,42 +369,7 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		return am.getSignature();
 	}
 	
-	private String extractClassFromListAdd(Stmt sink){
-		return extractModelFromInvokeStmt((InvokeStmt)sink);
-	}
-	
-	
-	private String extractModelFromInvokeStmt(InvokeStmt stmt){
 
-		 Value v = stmt.getInvokeExprBox().getValue();
-		 if (v instanceof JInterfaceInvokeExpr){
-			 JInterfaceInvokeExpr jv = (JInterfaceInvokeExpr) v;
-
-			 //This is old to support json with Maps
-			 if (jv.getMethodRef().getSignature().equals("<java.util.Map: java.lang.Object put(java.lang.Object,java.lang.Object)>")){
-
-				 if (jv.getBaseBox().getValue() instanceof JimpleLocal){
-					 JimpleLocal local = (JimpleLocal)jv.getBaseBox().getValue();
-					 String localName = local.getName();
-					 for (int i=0; i<jv.getArgCount(); i++){
-						 ValueBox ab = jv.getArgBox(i);
-						 if (ab.getValue() instanceof StringConstant){
-							
-						 }
-					 }
-				 }
-			 } else {
-				 //Query for argument index
-				 Type type = jv.getArgBox(0).getValue().getType();
-				 if (type instanceof RefType){
-					 RefType refType = (RefType) type;
-					 return refType.getClassName();
-				 }
-			 }
-		 }
-		 
-		 return null;
-	}
 	
 	/**
 	 * Parse out the model class name from the deserialization call
@@ -375,7 +451,10 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		List<String> sources  = new ArrayList<String>();
 		for (SootMethod method : model.getMethods()){
 			String methodName = method.getName();
-			if (shouldAcceptMethod(methodName)){
+			
+			//If not a void return type then grab it
+			if (!(method.getReturnType() instanceof VoidType)) {
+			//if (shouldAcceptMethod(methodName)){
 				String currentClass = method.getDeclaringClass().getName();
 				
 				//infoflow needs toplevel signature
@@ -387,12 +466,20 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		return sources;
 	}
 	
+	/**
+	 * Helper to determine which type of method we want to accept.
+	 * @param methodName
+	 * @return
+	 */
 	private boolean shouldAcceptMethod(String methodName){
 		return methodName.toLowerCase().startsWith("get") || 
 				methodName.toLowerCase().startsWith("is");
 		
 	}
 	
+	/**
+	 * Extract model class from this statement
+	 */
 	private String extractModelClassName(Stmt stmt){
 
 		String className = null;
@@ -421,13 +508,13 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 	 * @param sources
 	 * @param sinks
 	 */
-	private void createSinkSourceFile(List<String> sources, List<String> sinks){
+	private void createSinkSourceFile(String base, File file,  Set<String> sources, Set<String> sinks){
 		
 		
 		PrintWriter writer = null;
 		try {
 			
-			writer = new PrintWriter(sourcesAndSinksFile, "UTF-8");
+			writer = new PrintWriter(file, "UTF-8");
 			for (String source : sources){
 				String sourceEntry = source + " -> _SOURCE_";
 				writer.println(sourceEntry);
@@ -442,7 +529,7 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 			writer.println("");
 			
 			//Load all the known UI sinks
-			Path path = FileSystems.getDefault().getPath("./Sinks_ui.txt");
+			Path path = FileSystems.getDefault().getPath(base);
 			List<String> UISinks = Files.readAllLines(path, Charset.defaultCharset());
 
 			//Now add all the sinks
@@ -459,7 +546,7 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		}
 	}
 	
-	private void createEasyTaintWrapperFile(List<String> models){
+	private void createEasyTaintWrapperFile(Set<String> models){
 		//Load all the known UI sinks
 				
 		PrintWriter writer = null;
@@ -507,23 +594,7 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		return map;
 	}
 	
-	private void writeResults(FirstPassResult results){
-		Gson gson = new GsonBuilder().setPrettyPrinting().create();
-		PrintWriter writer = null;
-		try {
-				String json = gson.toJson(results);
-			   writer = new PrintWriter(resultsFile, "UTF-8");
-			   writer.write(json);
-			  
-			  } catch (IOException e) {
-			   e.printStackTrace();
-			  } finally{
-				  if (writer != null){
-					writer.close();
-				  }
-			  }
-	}
-	
+
 	public File getEasyTaintWrapperFile() {
 		return easyTaintWrapperFile;
 	}
