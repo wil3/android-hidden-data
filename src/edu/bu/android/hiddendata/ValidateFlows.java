@@ -33,6 +33,7 @@ import soot.util.Chain;
  * 
  * @author William Koch
  */
+@Deprecated //To slow
 public class ValidateFlows {
 	private static final Logger logger = LoggerFactory.getLogger(ValidateFlows.class.getName());
 	

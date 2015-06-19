@@ -21,10 +21,10 @@ import soot.jimple.internal.JimpleLocal;
 import soot.tagkit.SignatureTag;
 import soot.tagkit.Tag;
 
-public abstract class FlowAnalyzer {
+public abstract class PostProcessor {
 	protected SetupApplication context;
 
-	public FlowAnalyzer(SetupApplication context) {
+	public PostProcessor(SetupApplication context) {
 		this.context = context;
 		soot.G.reset();
 		context.initializeSoot();
@@ -34,7 +34,12 @@ public abstract class FlowAnalyzer {
 	protected String extractClassFromListAdd(Stmt sink){
 		return extractModelFromInvokeStmt((InvokeStmt)sink);
 	}
-	public static  boolean isAndroidFramework(String className){
+	/**
+	 * Whether or not this class name is part of a known framework, java, android, google, etc...
+	 * @param className
+	 * @return
+	 */
+	public static  boolean isFrameworkClass(String className){
 		return className.startsWith("java.") || 
 				className.startsWith("android.") || 
 				className.startsWith("javax.") ||
@@ -46,13 +51,10 @@ public abstract class FlowAnalyzer {
 				className.startsWith("com.android") ||
 				className.startsWith("dalvik.") ||
 
-				//not really
 				className.startsWith("com.google.gson");
-
-
 	}
 	
-	public static String getClassSignatureFromTag(List<Tag> tags){
+	public static String getSignatureFromTag(List<Tag> tags){
 		for (Tag tag : tags){
 			if (tag instanceof SignatureTag){
 				return ((SignatureTag) tag).getSignature();
@@ -60,6 +62,20 @@ public abstract class FlowAnalyzer {
 		}
 		return null;
 	}
+	public static boolean hasGeneric(String className){
+		return className.equals("java.util.List") ||
+				className.equals("java.util.ArrayList") || 
+				className.equals("java.util.LinkedList");
+	}
+
+	public static String convertBytecodeToJavaClassName(String classPath){
+		//TODO this wont work for all cases
+		if (classPath.endsWith(";")){
+			classPath = classPath.substring(classPath.indexOf("L") + 1, classPath.length() -1);
+		}
+		return classPath.replace("/", ".");
+	}
+
 	protected String extractModelFromInvokeStmt(InvokeStmt stmt){
 
 		 Value v = stmt.getInvokeExprBox().getValue();
@@ -119,12 +135,6 @@ public abstract class FlowAnalyzer {
 	}
 	
 	
-	public static boolean hasGeneric(String className){
-		return className.equals("java.util.List") ||
-				className.equals("java.util.ArrayList") || 
-				className.equals("java.util.LinkedList");
-	}
-	
 	/**
 	 * Because callbacks add additoinal seeds make sure we are only looking at the originals
 	 * @param stmtString
@@ -142,14 +152,6 @@ public abstract class FlowAnalyzer {
 		return false;
 	}
 	
-	public static String convertBytecodeToJavaClassName(String classPath){
-		//TODO this wont work for all cases
-		if (classPath.endsWith(";")){
-			classPath = classPath.substring(classPath.indexOf("L") + 1, classPath.length() -1);
-		}
-		return classPath.replace("/", ".");
-	}
-
 	public class ListFlow {
 		public ResultInfo source;
 		public ResultInfo sink;

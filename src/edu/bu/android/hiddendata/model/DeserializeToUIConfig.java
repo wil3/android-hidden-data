@@ -2,6 +2,7 @@ package edu.bu.android.hiddendata.model;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 public class DeserializeToUIConfig {
 
@@ -11,6 +12,10 @@ public class DeserializeToUIConfig {
 
 	private Collection<Model> models;
 
+	/**
+	 * Needed for injections
+	 */
+	private Map<String, String> modelToListSignatureMapping;
 	public Collection<Model> getModels() {
 		return models;
 	}
@@ -40,6 +45,15 @@ public class DeserializeToUIConfig {
 
 	public void setInjections(Collection<InjectionPoint> injections) {
 		this.injections = injections;
+	}
+
+	public Map<String, String> getModelToListSignatureMapping() {
+		return modelToListSignatureMapping;
+	}
+
+	public void setModelToListSignatureMapping(
+			Map<String, String> modelToListSignatureMapping) {
+		this.modelToListSignatureMapping = modelToListSignatureMapping;
 	}
 
 }

@@ -28,7 +28,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
-import edu.bu.android.hiddendata.FlowAnalyzer.ListFlow;
+import edu.bu.android.hiddendata.PostProcessor.ListFlow;
 import edu.bu.android.hiddendata.ModelExtraction.OnExtractionHandler;
 import edu.bu.android.hiddendata.model.DeserializeToUIConfig;
 import edu.bu.android.hiddendata.model.InjectionPoint;
@@ -76,11 +76,11 @@ import soot.util.Chain;
  * @author Wil Koch
  *
  */
-public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
+public class NetworkToDeserializePostProcessor extends PostProcessor {
 
 	//private final Hashtable<String, ObjectExtractionQuery> extractionPoints;
 	private final Hashtable<String,Integer> modelParameterIndexLookup = new Hashtable<String, Integer>();
-	private static final Logger logger = LoggerFactory.getLogger(NetworkToDeserializeFlowAnalyzer.class.getName());
+	private static final Logger logger = LoggerFactory.getLogger(NetworkToDeserializePostProcessor.class.getName());
 
 	private InfoflowResults results;
 	private final String apkFileName;
@@ -90,22 +90,17 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 	/**
 	 * What model is mapped to the signature so it can be created for injection
 	 */
-	HashMap<String, String> signatureToModelMapping = new HashMap<String, String>();
-
-	public HashMap<String, String> getModelToAddSignatureMapping() {
-		return signatureToModelMapping;
-	}
-
+	private HashMap<String, String> signatureToModelMapping = new HashMap<String, String>();
 
 	private File sourcesAndSinksListFile;
 	
-	public NetworkToDeserializeFlowAnalyzer(SetupApplication context, File sourcesAndSinksFile, File sourceAndSinkListFile, File easyTaintFile,  InfoflowResults results){
+	public NetworkToDeserializePostProcessor(SetupApplication context, File sourcesAndSinksFile, File sourceAndSinkListFile, File easyTaintFile,  InfoflowResults results){
 		super(context);
 		this.apkFileName = new File(context.getApkFileLocation()).getName();
 		this.results = results;
 		this.sourcesAndSinksFile = sourcesAndSinksFile;
 		this.easyTaintWrapperFile = easyTaintFile;
-		this.resultsFile = new File(sourcesAndSinksFile.getParentFile(),apkFileName + FindHidden.JSON_TO_UI_CONFIG_SUFFIX );
+		this.resultsFile = new File(sourcesAndSinksFile.getParentFile(),apkFileName + FindHidden.MODEL_TO_UI_CONFIG_SUFFIX );
 		
 		this.sourcesAndSinksListFile = sourceAndSinkListFile;
 		
@@ -251,11 +246,16 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		for (String model : modelClassNames){
 			allModels.addAll(me.getModels(model));
 		}
+		
+		//Add all models as sources
 		for (String model : allModels){
 			sourceSignatures.add(makeDefaultSignatureConstructor(model));
 		}
-		//When we look at generics there are more classes we can find in the model
-		//sourceSignatures.addAll(getModelClasses(allModels));
+		//Add all model get methods as sources. This is to workaround issue 
+		//with agnostic results not necessarily chosen the path that has 
+		//the model fully tainted and therefore during post analysis can not be retrieved
+		//to find what get methods are at sink
+		sourceSignatures.addAll(modelMethodSignatures);
 		
 		Set<String> listConstructorSources = new HashSet<String>();
 		Set<String> listAddModelSignatures = findAddMethods(listConstructorSources, allModels);
@@ -264,6 +264,7 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		//Write out results to be used for next pass
 		result.setGetMethodSignatures(modelMethodSignatures);
 		result.setModelNames(allModels);
+		result.setModelToListSignatureMapping(signatureToModelMapping);
 		//result.setInjections(injections); //Done in ListAnalyzer
 		JsonUtils.writeResults(resultsFile, result);
 		
@@ -274,14 +275,6 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 	
 	}
 	
-	private Set<String> getModelClasses(Set<String> getMethods){
-		Set<String> all = new HashSet<String>();
-		for (String signature : getMethods){
-		AndroidMethod am = AndroidMethod.createFromSignature(signature);
-		all.add(makeDefaultSignatureConstructor(am.getClassName()));
-		}
-		return all;
-	}
 	
 	/**
 	 * Create sigatures for all the add methods. We do this so we limit the number of sinks to this method
@@ -301,7 +294,7 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 				//sc.setApplicationClass();
 				//new ModelExtraction().getModels(sc.getName());
 			}
-			if (isAndroidFramework(sc.getName())){
+			if (isFrameworkClass(sc.getName())){
 				continue;
 			}
 			boolean foundInMethod = false;
@@ -325,7 +318,8 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 					
 					if (stmt instanceof InvokeStmt){
 					
-						if (stmt.toString().contains("<java.util.List: boolean add(java.lang.Object)>")){
+						if (stmt.toString().contains("<java.util.List: boolean add(java.lang.Object)>")
+								||stmt.toString().contains("<java.util.ArrayList: boolean add(java.lang.Object)>") ){
 							
 						 	String modelClassName = extractClassFromListAdd(stmt);
 						 	if (modelClassName != null && modelClassNames.contains(modelClassName)){
@@ -420,7 +414,7 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 											SootMethodRef methodRef = ((AssignStmt)modelRef).getInvokeExpr().getMethodRef();
 											SootMethod sm = methodRef.resolve();
 											
-											String methodSignatureTag = FlowAnalyzer.getClassSignatureFromTag( sm.getTags());
+											String methodSignatureTag = PostProcessor.getSignatureFromTag( sm.getTags());
 
 											//If there is a generic type and the return is an object 
 											//then we grab the generic from the class
@@ -431,9 +425,9 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 												
 												//If the ret type is an Object than look at the class generics to see if this is right
 												SootClass sc = methodRef.declaringClass();
-												String sig = FlowAnalyzer.getClassSignatureFromTag(sc.getTags());
+												String sig = PostProcessor.getSignatureFromTag(sc.getTags());
 												ModelExtraction me = new ModelExtraction();
-												List<String> typeClassNames = me.getTypeParameters(sig);
+												List<String> typeClassNames = me.getClassTypeParameters(sig);
 												if (retType instanceof RefType && 
 														((RefType)retType).getClassName().equals("java.lang.Object")
 														&& !typeClassNames.isEmpty()){

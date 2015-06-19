@@ -59,7 +59,7 @@ import soot.util.Chain;
  * @see {LibraryClassPatcher} class for examples of creating and applying changes to scene
  * @see {BaseEntryPointCreator}
  */
-public class RewireFlow implements PreAnalysisHandler {
+public class CallGraphAndroidPatcher implements PreAnalysisHandler {
 	private final Logger logger = LoggerFactory.getLogger(getClass());
 
 	public static int CALLGRAPH_EDGES = 0;
@@ -74,10 +74,10 @@ public class RewireFlow implements PreAnalysisHandler {
 	private List<SootMethod> onPostExecuteMethods = null;
 
 	private String injectionsFilePath;
-	public RewireFlow(){
+	public CallGraphAndroidPatcher(){
 		
 	}
-	public RewireFlow(String injectionsFilePath){
+	public CallGraphAndroidPatcher(String injectionsFilePath){
 		this.injectionsFilePath = injectionsFilePath;
 	}
 	
@@ -115,6 +115,9 @@ public class RewireFlow implements PreAnalysisHandler {
 
 	private void injectCode(){
 		DeserializeToUIConfig modelResults = JsonUtils.loadFirstPassResultFile(new File(injectionsFilePath));
+		//If no injections are previously found the object does not get created in the model
+		if (modelResults.getInjections() == null){ return;}
+		
 		for (final InjectionPoint inject : modelResults.getInjections()){
 			SootClass sootClass = Scene.v().getSootClass(inject.getDeclaredClass());
 			SootMethod method = sootClass.getMethodUnsafe(inject.getMethodSignature());

@@ -32,7 +32,7 @@ import soot.jimple.infoflow.data.pathBuilders.DefaultPathBuilderFactory.PathBuil
 import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.taintWrappers.EasyTaintWrapper;
 import soot.jimple.infoflow.taintWrappers.ITaintPropagationWrapper;
-import edu.bu.android.hiddendata.infoflow.RewireFlow;
+import edu.bu.android.hiddendata.infoflow.CallGraphAndroidPatcher;
 
 public class FindHidden {
 	
@@ -50,9 +50,9 @@ public class FindHidden {
 	private static int sysTimeout = -1;
 	
 	protected static final String RESULT_DIRECTORY = "results";
-	protected static final String SOURCESINK_SUFFEX = "-json2ui_sources_sinks.txt";
+	protected static final String SOURCESINK_SUFFEX = "-model2ui_sources_sinks.txt";
 	protected static final String EASY_TAINT_WRAPPER_FILE_PREFIX = "-easytaintwrapper.txt";
-	protected static final String JSON_TO_UI_CONFIG_SUFFIX = "-json2ui_config.json";
+	protected static final String MODEL_TO_UI_CONFIG_SUFFIX = "-model2ui_config.json";
 	protected static final String LIST_SUFFIX = "-list_sources_sinks.txt";
 	protected static final String RESULTS_SUFFIX = "-results.json";
 
@@ -165,43 +165,44 @@ public class FindHidden {
 				
 			} 
 			
-			//If we have a sys timeout then we need to spawn 
-			//a new processes and it will restart this for a single app
-			if (sysTimeout > 0) {
-				logger.info("Path: " + fullFilePath + " arg1: " + args[1]);
-				runAnalysisSysTimeout(fullFilePath, args[1]);
-				continue;
-			}
+
 			//Set the source sink file to be used
 			String apkFileName = new File(fullFilePath).getName();
 			String sourceAndSinkFileName = apkFileName + SOURCESINK_SUFFEX;
 			String easyTaintFileName = apkFileName + EASY_TAINT_WRAPPER_FILE_PREFIX;
 
-			File apkResult1Dir = new File("./" + RESULT_DIRECTORY + "/" + apkFileName);
+			File apkResult1Dir = new File(RESULT_DIRECTORY, apkFileName);
 			
 			//If the file already exists then do the second pass
 			if (!apkResult1Dir.exists()){
 				apkResult1Dir.mkdirs();
-
-				//mode = Mode.DESERIALIZE_TO_UI;
-			} else {
-				//mode = Mode.NETWORK_TO_DESERIALIZE;
+			} 
+			
+			//If we have a sys timeout then we need to spawn 
+			//a new processes and it will restart this for a single app
+			if (sysTimeout > 0) {
+				logger.info("Path: " + fullFilePath + " arg1: " + args[1]);
+				runAnalysisSysTimeout(apkResult1Dir, fullFilePath, args[1]);
+				continue;
 			}
 			
 			
-			File pass1FlagFile = new File(apkResult1Dir, "net2json.flag");
-			File pass2FlagFile = new File(apkResult1Dir, "json2ui.flag");
+			File netToModelFlagFile = new File(apkResult1Dir, "net2jmodel.flag");
+			File listFlagFile = new File(apkResult1Dir, "list.flag");
+			File modelToUIFlagFile = new File(apkResult1Dir, "model2ui.flag");
 			//File pass3FlagFile = new File(apkResult1Dir, ".pass3");
 			
 			mode = Mode.NETWORK_TO_DESERIALIZE;
 
-			if (pass1FlagFile.exists()){
-				mode = Mode.DESERIALIZE_TO_UI;
-				if (pass2FlagFile.exists()){
-					//if (pass3FlagFile.exists()){//Done
+			//Whats the current mode?
+			if (netToModelFlagFile.exists()){
+				mode = Mode.LIST_ANALYSIS;
+				if (listFlagFile.exists()){
+					mode = Mode.DESERIALIZE_TO_UI;
+					if (modelToUIFlagFile.exists()){
 						logger.warn("Already ran analysis");
 						return;
-					//}
+					}
 				}
 			}
 			
@@ -213,7 +214,7 @@ public class FindHidden {
 			File sourceSinkFileResults = new File(apkResult1Dir, apkFileName + RESULTS_SUFFIX);
 			File sourceSinkFileDeserializeToUI = new File(apkResult1Dir, sourceAndSinkFileName);
 			File easyTaintFileDeserializeToUI  = new File(apkResult1Dir, easyTaintFileName );
-			File jsonToUIresultsFile = new File(apkResult1Dir, apkFileName + FindHidden.JSON_TO_UI_CONFIG_SUFFIX );
+			File jsonToUIresultsFile = new File(apkResult1Dir, apkFileName + FindHidden.MODEL_TO_UI_CONFIG_SUFFIX );
 
 			final long beforeRun = System.nanoTime();
 
@@ -239,7 +240,7 @@ public class FindHidden {
 					}
 					
 					//Create source sink for next pass as well
-					NetworkToDeserializeFlowAnalyzer pass1 = new NetworkToDeserializeFlowAnalyzer(results.context,  sourceSinkFileDeserializeToUI, sourceSinkFileList, easyTaintFileDeserializeToUI,  results.infoFlowResults);
+					NetworkToDeserializePostProcessor pass1 = new NetworkToDeserializePostProcessor(results.context,  sourceSinkFileDeserializeToUI, sourceSinkFileList, easyTaintFileDeserializeToUI,  results.infoFlowResults);
 					pass1.process();
 					
 
@@ -248,32 +249,34 @@ public class FindHidden {
 					//Only do an additional pass if there were some instances where the model classes were added to lists
 					//if (!pass1.getModelToAddSignatureMapping().isEmpty()){
 						
-						logger.info("=========================================");
-						logger.info("Pass 1.5: Lists to List.add");
-						logger.info("=========================================");
-
-						//Note: I dont believe this needs agnositic should be false because
-						//we only need to location the source here for the injection
-						sourcesAndSinksFilePath = sourceSinkFileList.getAbsolutePath();
-						easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
-
-						results = runAnalysis(fullFilePath, args[1]);
-						ListAnalyzer la = new ListAnalyzer(results.context, results.infoFlowResults, pass1, jsonToUIresultsFile);
-						la.process();
-						System.gc();
+			
 					//} else {
 					//	logger.warn("No models were found being added to lists");
 					//}
 						
-					pass1FlagFile.createNewFile();
+					netToModelFlagFile.createNewFile();
 
 				}
 				case LIST_ANALYSIS: {
+					logger.info("=========================================");
+					logger.info("Pass 2: Lists to List.add");
+					logger.info("=========================================");
+
+					//Note: I dont believe this needs agnositic should be false because
+					//we only need to location the source here for the injection
+					sourcesAndSinksFilePath = sourceSinkFileList.getAbsolutePath();
+					//easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
+
+					results = runAnalysis(fullFilePath, args[1]);
+					ListFlowsPostProcessor la = new ListFlowsPostProcessor(results.context, results.infoFlowResults, jsonToUIresultsFile);
+					la.process();
+					System.gc();
 					
+					listFlagFile.createNewFile();
 				}
 				case DESERIALIZE_TO_UI: {
 					logger.info("=========================================");
-					logger.info("Pass 2: Deserializer to UI");
+					logger.info("Pass 3: Deserializer to UI");
 					logger.info("=========================================");
 
 
@@ -281,7 +284,7 @@ public class FindHidden {
 					injectionsFilePath = jsonToUIresultsFile.getAbsolutePath();
 					
 					sourcesAndSinksFilePath = sourceSinkFileDeserializeToUI.getAbsolutePath();
-					easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
+					//easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
 
 					logger.info("Using " + sourcesAndSinksFilePath + " as source-sink file.");
 
@@ -289,9 +292,9 @@ public class FindHidden {
 					results = runAnalysis(fullFilePath, args[1]);
 					
 					//Now we are done so we need to figure out where we didnt have mappings
-					new DeserializeToUiFlowAnalyzer(sourceSinkFileResults, jsonToUIresultsFile, results.context, results.infoFlowResults).findHiddenData();
+					new DeserializeToUiPostProcessor(sourceSinkFileResults, jsonToUIresultsFile, results.context, results.infoFlowResults).findHiddenData();
 						
-					pass2FlagFile.createNewFile();
+					modelToUIFlagFile.createNewFile();
 
 				}
 			}
@@ -303,46 +306,166 @@ public class FindHidden {
 			
 		} //end for 
 	}
-	private static AnalysisResults run(String path, String args){
-		AnalysisResults results = null;
-		if (timeout > 0)
-			runAnalysisTimeout(path, args);
-		else if (sysTimeout > 0)
-			runAnalysisSysTimeout(path, args);
-		else
-			results = runAnalysis(path, args);
-		
-		return results;
-	}
-	
-	
-	/**
-	 * When callbacks are enabled flows that are not intentional are found. I think this is due
-	 * to the callbacks acting as seeds for the source/sink so here we just want to make sure that
-	 * the source is actually coming from one of our defined sources not precomputed by soot
-	 * @param sourcesSinks
-	 * @param results
-	 
-	private void postProcessResults(ISourceSinkManager sourcesSinks, InfoflowResults results){
-		
-		
-		for (Entry<ResultSinkInfo, Set<ResultSourceInfo>> entry : results.getResults().entrySet()) {
-			SootClass declaringClass = iCfg.getMethodOf(entry.getKey().getSink()).getDeclaringClass();
-			entry.getKey().setDeclaringClass(declaringClass);
+
+
+	private static void runAnalysisSysTimeout(File apkResultDir, final String fileName, final String androidJar) {
 			
-			for (ResultSourceInfo source : entry.getValue()) {
-				logger.info("- {} in method {}",source, iCfg.getMethodOf(source.getSource()).getSignature());
-				if (source.getPath() != null && !source.getPath().isEmpty()) {
-					logger.info("\ton Path: ");
-					for (Unit p : source.getPath()) {
-						logger.info("\t -> " + iCfg.getMethodOf(p));
-						logger.info("\t\t -> " + p);
-					}
-				}
+			RuntimeMXBean runtimeMxBean = ManagementFactory.getRuntimeMXBean();
+			List<String> jvmArgs = runtimeMxBean.getInputArguments();
+			
+	
+			String classpath = System.getProperty("java.class.path");
+			String javaHome = System.getProperty("java.home");
+			String executable = "/usr/bin/timeout";
+			
+	//TODO pull request, this was set to timeout in minutes, docs say seconds
+			
+			List<String> cmd = new ArrayList<String>();
+			
+			//The timeout executable
+			cmd.add(executable);
+			cmd.add("-s");
+			cmd.add( "KILL");
+			cmd.add(sysTimeout + "s");
+	
+			//The executable to run
+			cmd.add(javaHome + "/bin/java");
+			
+			//The jvm arguments, same as we started
+			cmd.addAll(jvmArgs);
+			
+			cmd.add("-cp");
+			cmd.add(classpath);
+			cmd.add("edu.bu.android.hiddendata.FindHidden");
+			
+			//The arguments
+			cmd.add(fileName);
+			cmd.add(androidJar);
+			
+			//Flags
+			cmd.add(stopAfterFirstFlow ? "--singleflow" : "--nosingleflow");
+			cmd.add(useFragments ? "--fragments" : "--nofragments");
+			cmd.add(implicitFlows ? "--implicit" : "--noimplicit");
+			cmd.add(staticTracking ? "--static" : "--nostatic");
+			cmd.add(flowSensitiveAliasing ? "--aliasflowsens" : "--aliasflowins");
+			cmd.add(computeResultPaths ? "--paths" : "--nopaths");
+			cmd.add(aggressiveTaintWrapper ? "--aggressivetw" : "--nonaggressivetw");
+			cmd.add(enableCallbacks ? "--callbacks" : "--nocallbacks");
+			cmd.add(enableExceptions ? "--exceptions" : "--noexceptions");
+			
+			cmd.add("--aplength");
+			cmd.add(Integer.toString(accessPathLength));
+			
+			cmd.add("--cgalgo");
+			cmd.add(callgraphAlgorithmToString(callgraphAlgorithm));
+	
+			cmd.add("--layoutmode");
+			cmd.add(layoutMatchingModeToString(layoutMatchingMode));
+			
+			cmd.add("--pathalgo");
+			cmd.add(pathAlgorithmToString(pathBuilder));
+			
+			cmd.add("--SOURCESSINKS");
+			cmd.add(sourcesAndSinksFilePath);
+			
+			if (easyTaintFilePath != null){
+				cmd.add("--EASYTAINT");
+				cmd.add(easyTaintFilePath);
+			}
+	
+			logger.info("Running command: {}", cmd);
+			
+			
+			String[] commandArray = new String[cmd.size()];
+			commandArray = cmd.toArray(commandArray);
+			
+			try {
+				ProcessBuilder pb = new ProcessBuilder(commandArray);
+				//pb.inheritIO();
+				
+				//All of the proper logs are redirected to error
+				File f= new File(apkResultDir, new File(fileName).getName() + ".log");
+				//pb.redirectOutput(f);
+				pb.redirectError(f);//new File("err_" + new File(fileName).getName() + ".txt"));
+				Process proc = pb.start();
+			
+				proc.waitFor();
+			} catch (IOException ex) {
+				System.err.println("Could not execute timeout command: " + ex.getMessage());
+				ex.printStackTrace();
+			} catch (InterruptedException ex) {
+				System.err.println("Process was interrupted: " + ex.getMessage());
+				ex.printStackTrace();
 			}
 		}
+
+
+	private static AnalysisResults runAnalysis(final String fileName, final String androidJar) {
+		try {
+	
+			final SetupApplication	app = new SetupApplication(androidJar, fileName);
+	
+			app.setStopAfterFirstFlow(stopAfterFirstFlow);
+			app.setEnableImplicitFlows(implicitFlows);
+			app.setEnableStaticFieldTracking(staticTracking);
+			app.setEnableCallbacks(enableCallbacks);
+			app.setEnableExceptionTracking(enableExceptions);
+			app.setAccessPathLength(accessPathLength);
+			app.setLayoutMatchingMode(layoutMatchingMode);
+			app.setFlowSensitiveAliasing(flowSensitiveAliasing);
+			app.setPathBuilder(pathBuilder);
+			app.setComputeResultPaths(computeResultPaths);
+			app.setUseFragments(useFragments);
+			app.setInjectionsFilePath(injectionsFilePath);
+			final ITaintPropagationWrapper taintWrapper;
+	
+			//Create a new file from this string paramter
+			final EasyTaintWrapper easyTaintWrapper;
+			if (easyTaintFilePath != null && new File(easyTaintFilePath).exists())
+				easyTaintWrapper = new EasyTaintWrapper(easyTaintFilePath);
+			else if (new File("../soot-infoflow/EasyTaintWrapperSource.txt").exists())
+				easyTaintWrapper = new EasyTaintWrapper("../soot-infoflow/EasyTaintWrapperSource.txt");
+			else
+				easyTaintWrapper = new EasyTaintWrapper("EasyTaintWrapperSource.txt");
+			easyTaintWrapper.setAggressiveMode(aggressiveTaintWrapper);
+			taintWrapper = easyTaintWrapper;
+		
+			
+			app.addPreprocessor(new CallGraphAndroidPatcher(injectionsFilePath));
+			
+			
+			app.setTaintWrapper(taintWrapper);
+			app.calculateSourcesSinksEntrypoints(sourcesAndSinksFilePath);
+			//app.calculateSourcesSinksEntrypoints("SuSiExport.xml");
+			
+			
+			if (DEBUG) {
+				app.printEntrypoints();
+				app.printSinks();
+				app.printSources();
+				
+				app.addPreprocessor(new DebugHelper());
+			}
+				
+			System.out.println("Running data flow analysis...");
+			final InfoflowResults res = app.runInfoflow();
+			
+			AnalysisResults r = new AnalysisResults();
+			r.context = app;
+			r.infoFlowResults = res;
+			return r;
+			
+		} catch (IOException ex) {
+			System.err.println("Could not read file: " + ex.getMessage());
+			ex.printStackTrace();
+			throw new RuntimeException(ex);
+		} catch (XmlPullParserException ex) {
+			System.err.println("Could not read Android manifest file: " + ex.getMessage());
+			ex.printStackTrace();
+			throw new RuntimeException(ex);
+		}
 	}
-*/
+
 
 	private static boolean parseAdditionalOptions(String[] args) {
 		int i = 2;
@@ -480,169 +603,7 @@ public class FindHidden {
 		}
 		return true;
 	}
-	
-	private static void runAnalysisTimeout(final String fileName, final String androidJar) {
-		FutureTask<InfoflowResults> task = new FutureTask<InfoflowResults>(new Callable<InfoflowResults>() {
 
-			@Override
-			public InfoflowResults call() throws Exception {
-				
-				final BufferedWriter wr = new BufferedWriter(new FileWriter("_out_" + new File(fileName).getName() + ".txt"));
-				try {
-					final long beforeRun = System.nanoTime();
-					wr.write("Running data flow analysis...\n");
-					final InfoflowResults res = runAnalysis(fileName, androidJar).infoFlowResults;
-					wr.write("Analysis has run for " + (System.nanoTime() - beforeRun) / 1E9 + " seconds\n");
-					
-					wr.flush();
-					return res;
-				}
-				finally {
-					if (wr != null)
-						wr.close();
-				}
-			}
-			
-		});
-		ExecutorService executor = Executors.newFixedThreadPool(1);
-		executor.execute(task);
-		
-		try {
-			System.out.println("Running infoflow task...");
-			task.get(timeout, TimeUnit.MINUTES);
-		} catch (ExecutionException e) {
-			System.err.println("Infoflow computation failed: " + e.getMessage());
-			e.printStackTrace();
-		} catch (TimeoutException e) {
-			System.err.println("Infoflow computation timed out: " + e.getMessage());
-			e.printStackTrace();
-		} catch (InterruptedException e) {
-			System.err.println("Infoflow computation interrupted: " + e.getMessage());
-			e.printStackTrace();
-		}
-		
-		// Make sure to remove leftovers
-		executor.shutdown();		
-	}
-
-	private static String easyTaintToString(){
-		return easyTaintFilePath == null ? "" : easyTaintFilePath;
-	}
-	private static void runAnalysisSysTimeout(final String fileName, final String androidJar) {
-		
-		RuntimeMXBean runtimeMxBean = ManagementFactory.getRuntimeMXBean();
-		List<String> jvmArgs = runtimeMxBean.getInputArguments();
-		
-
-		String classpath = System.getProperty("java.class.path");
-		String javaHome = System.getProperty("java.home");
-		String executable = "/usr/bin/timeout";
-		
-//TODO pull request, this was set to timeout in minutes, docs say seconds
-		
-		List<String> cmd = new ArrayList<String>();
-		
-		//The timeout executable
-		cmd.add(executable);
-		cmd.add("-s");
-		cmd.add( "KILL");
-		cmd.add(sysTimeout + "s");
-
-		//The executable to run
-		cmd.add(javaHome + "/bin/java");
-		
-		//The jvm arguments, same as we started
-		cmd.addAll(jvmArgs);
-		
-		cmd.add("-cp");
-		cmd.add(classpath);
-		cmd.add("edu.bu.android.hiddendata.FindHidden");
-		
-		//The arguments
-		cmd.add(fileName);
-		cmd.add(androidJar);
-		
-		//Flags
-		cmd.add(stopAfterFirstFlow ? "--singleflow" : "--nosingleflow");
-		cmd.add(useFragments ? "--fragments" : "--nofragments");
-		cmd.add(implicitFlows ? "--implicit" : "--noimplicit");
-		cmd.add(staticTracking ? "--static" : "--nostatic");
-		cmd.add(flowSensitiveAliasing ? "--aliasflowsens" : "--aliasflowins");
-		cmd.add(computeResultPaths ? "--paths" : "--nopaths");
-		cmd.add(aggressiveTaintWrapper ? "--aggressivetw" : "--nonaggressivetw");
-		cmd.add(enableCallbacks ? "--callbacks" : "--nocallbacks");
-		cmd.add(enableExceptions ? "--exceptions" : "--noexceptions");
-		
-		cmd.add("--aplength");
-		cmd.add(Integer.toString(accessPathLength));
-		
-		cmd.add("--cgalgo");
-		cmd.add(callgraphAlgorithmToString(callgraphAlgorithm));
-
-		cmd.add("--layoutmode");
-		cmd.add(layoutMatchingModeToString(layoutMatchingMode));
-		
-		cmd.add("--pathalgo");
-		cmd.add(pathAlgorithmToString(pathBuilder));
-		
-		cmd.add("--SOURCESSINKS");
-		cmd.add(sourcesAndSinksFilePath);
-		
-		if (easyTaintFilePath != null){
-			cmd.add("--EASYTAINT");
-			cmd.add(easyTaintFilePath);
-		}
-
-		String[] command = new String[] { executable,
-				"-s", "KILL",
-				sysTimeout + "s",
-				javaHome + "/bin/java",
-				"-cp", classpath,
-				"edu.bu.android.hiddendata.FindHidden",
-				fileName,
-				androidJar,
-				stopAfterFirstFlow ? "--singleflow" : "--nosingleflow",
-				useFragments ? "--fragments" : "--nofragments",
-				implicitFlows ? "--implicit" : "--noimplicit",
-				staticTracking ? "--static" : "--nostatic", 
-				"--aplength", Integer.toString(accessPathLength),
-				"--cgalgo", callgraphAlgorithmToString(callgraphAlgorithm),
-				enableCallbacks ? "--callbacks" : "--nocallbacks",
-				enableExceptions ? "--exceptions" : "--noexceptions",
-				"--layoutmode", layoutMatchingModeToString(layoutMatchingMode),
-				flowSensitiveAliasing ? "--aliasflowsens" : "--aliasflowins",
-				computeResultPaths ? "--paths" : "--nopaths",
-				aggressiveTaintWrapper ? "--aggressivetw" : "--nonaggressivetw",
-				"--pathalgo", pathAlgorithmToString(pathBuilder),
-				"--SOURCESSINKS", sourcesAndSinksFilePath,
-				"--EASYTAINT", easyTaintToString()
-		};
-		logger.info("Running command: {}", cmd);
-		
-		
-		String[] commandArray = new String[cmd.size()];
-		commandArray = cmd.toArray(commandArray);
-		
-		try {
-			ProcessBuilder pb = new ProcessBuilder(commandArray);
-			//pb.inheritIO();
-			
-			//All of the proper logs are redirected to error
-			File f= new File("_out_" + new File(fileName).getName() + ".txt");
-			//pb.redirectOutput(f);
-			pb.redirectError(f);//new File("err_" + new File(fileName).getName() + ".txt"));
-			Process proc = pb.start();
-		
-			proc.waitFor();
-		} catch (IOException ex) {
-			System.err.println("Could not execute timeout command: " + ex.getMessage());
-			ex.printStackTrace();
-		} catch (InterruptedException ex) {
-			System.err.println("Process was interrupted: " + ex.getMessage());
-			ex.printStackTrace();
-		}
-	}
-	
 	private static String callgraphAlgorithmToString(CallgraphAlgorithm algorihm) {
 		switch (algorihm) {
 			case AutomaticSelection:
@@ -687,74 +648,7 @@ public class FindHidden {
 	}
 	
 	
-	private static AnalysisResults runAnalysis(final String fileName, final String androidJar) {
-		try {
-
-			final SetupApplication	app = new SetupApplication(androidJar, fileName);
-
-			app.setStopAfterFirstFlow(stopAfterFirstFlow);
-			app.setEnableImplicitFlows(implicitFlows);
-			app.setEnableStaticFieldTracking(staticTracking);
-			app.setEnableCallbacks(enableCallbacks);
-			app.setEnableExceptionTracking(enableExceptions);
-			app.setAccessPathLength(accessPathLength);
-			app.setLayoutMatchingMode(layoutMatchingMode);
-			app.setFlowSensitiveAliasing(flowSensitiveAliasing);
-			app.setPathBuilder(pathBuilder);
-			app.setComputeResultPaths(computeResultPaths);
-			app.setUseFragments(useFragments);
-			app.setInjectionsFilePath(injectionsFilePath);
-			final ITaintPropagationWrapper taintWrapper;
-	
-			//Create a new file from this string paramter
-			final EasyTaintWrapper easyTaintWrapper;
-			if (easyTaintFilePath != null && new File(easyTaintFilePath).exists())
-				easyTaintWrapper = new EasyTaintWrapper(easyTaintFilePath);
-			else if (new File("../soot-infoflow/EasyTaintWrapperSource.txt").exists())
-				easyTaintWrapper = new EasyTaintWrapper("../soot-infoflow/EasyTaintWrapperSource.txt");
-			else
-				easyTaintWrapper = new EasyTaintWrapper("EasyTaintWrapperSource.txt");
-			easyTaintWrapper.setAggressiveMode(aggressiveTaintWrapper);
-			taintWrapper = easyTaintWrapper;
-		
-			
-			app.addPreprocessor(new RewireFlow(injectionsFilePath));
-			
-			
-			app.setTaintWrapper(taintWrapper);
-			app.calculateSourcesSinksEntrypoints(sourcesAndSinksFilePath);
-			//app.calculateSourcesSinksEntrypoints("SuSiExport.xml");
-			
-			
-			if (DEBUG) {
-				app.printEntrypoints();
-				app.printSinks();
-				app.printSources();
-				
-				app.addPreprocessor(new DebugHelp());
-			}
-				
-			System.out.println("Running data flow analysis...");
-			final InfoflowResults res = app.runInfoflow();
-			
-			AnalysisResults r = new AnalysisResults();
-			r.context = app;
-			r.infoFlowResults = res;
-			return r;
-			
-		} catch (IOException ex) {
-			System.err.println("Could not read file: " + ex.getMessage());
-			ex.printStackTrace();
-			throw new RuntimeException(ex);
-		} catch (XmlPullParserException ex) {
-			System.err.println("Could not read Android manifest file: " + ex.getMessage());
-			ex.printStackTrace();
-			throw new RuntimeException(ex);
-		}
-	}
-	
-
-//TODO need a proper parsing library for this
+	//TODO need a proper parsing library for this
 	private static void printUsage() {
 		System.out.println("FlowDroid (c) Secure Software Engineering Group @ EC SPRIDE");
 		System.out.println();

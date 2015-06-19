@@ -6,9 +6,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
-import edu.bu.android.hiddendata.FlowAnalyzer.ListFlow;
+import edu.bu.android.hiddendata.PostProcessor.ListFlow;
 import edu.bu.android.hiddendata.model.DeserializeToUIConfig;
 import edu.bu.android.hiddendata.model.InjectionPoint;
 import edu.bu.android.hiddendata.model.JsonUtils;
@@ -20,17 +21,22 @@ import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.results.ResultSinkInfo;
 import soot.jimple.infoflow.results.ResultSourceInfo;
 
-public class ListAnalyzer extends FlowAnalyzer {
+public class ListFlowsPostProcessor extends PostProcessor {
 	private InfoflowResults results;
-	NetworkToDeserializeFlowAnalyzer pass1;
 	private DeserializeToUIConfig modelResults;
 	private File resultsFile;
-	public ListAnalyzer(SetupApplication context,  InfoflowResults results, NetworkToDeserializeFlowAnalyzer pass1, File resultsFile ) {
+	
+	/**
+	 * 
+	 * @param context
+	 * @param results
+	 * @param netToModelResultsFile 	So we can fill in injectins 
+	 */
+	public ListFlowsPostProcessor(SetupApplication context,  InfoflowResults results, File netToModelResultsFile ) {
 		super(context);
 		this.results = results;
-		this.resultsFile = resultsFile;
-		this.pass1 = pass1;
-		this.modelResults = JsonUtils.loadFirstPassResultFile(resultsFile);
+		this.resultsFile = netToModelResultsFile;
+		this.modelResults = JsonUtils.loadFirstPassResultFile(netToModelResultsFile);
 
 	}
 
@@ -56,7 +62,7 @@ public class ListAnalyzer extends FlowAnalyzer {
 						listFlow.sink = sink;
 						
 						String sig = getSignature(sink.getDeclaringClass(), sink.getSink());
-						String modelClass = pass1.getModelToAddSignatureMapping().get(sig);
+						String modelClass = modelResults.getModelToListSignatureMapping().get(sig);
 						addMethodParameterClassNames.put(modelClass, listFlow);
 				
 				}

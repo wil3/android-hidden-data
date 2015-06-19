@@ -17,7 +17,7 @@ import soot.jimple.Stmt;
 import soot.jimple.infoflow.handlers.PreAnalysisHandler;
 import soot.util.Chain;
 
-public class DebugHelp implements PreAnalysisHandler{
+public class DebugHelper implements PreAnalysisHandler{
 	private final Logger logger = LoggerFactory.getLogger(getClass());
 
 	public void dumpJimple(){
@@ -27,7 +27,7 @@ public class DebugHelp implements PreAnalysisHandler{
 		Iterator<SootClass> it = classes.iterator();
 		while (it.hasNext()){
 			final SootClass sc = it.next();
-			if (FlowAnalyzer.isAndroidFramework(sc.getName())){
+			if (PostProcessor.isFrameworkClass(sc.getName())){
 				continue;
 			}
 			for (SootMethod method : sc.getMethods()){

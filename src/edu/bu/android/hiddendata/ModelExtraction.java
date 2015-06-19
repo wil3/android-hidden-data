@@ -67,12 +67,18 @@ public class ModelExtraction {
 		return classes;
 	}
 	
+	/**
+	 * Collect all the class reference types of methods recursively
+	 * @param sootClass
+	 * @param classes
+	 * @param superTypeSignature
+	 */
 	private void getMethodReturnClassNames(SootClass sootClass, Set<String> classes, ClassTypeSignature superTypeSignature){
 		ClassTypeSignature childSuperTypeSignature = null;
 		ClassTypeSignature currentSuperTypeSignature = null;
 
 		//For all the classes
-		for (SootClass sc : getSuperSootClasses(sootClass)){
+		for (SootClass sc : getSuperSootClasses(sootClass, true)){
 			classes.add(sc.getName());
 			
 			if (sc.getName().contains("AnnotationTest")){
@@ -80,7 +86,7 @@ public class ModelExtraction {
 			}
 			//Look at the class signature, see if it has any type parameters that need to be replaced 
 			//in the methods
-			String signatureTag = FlowAnalyzer.getClassSignatureFromTag(sc.getTags());
+			String signatureTag = PostProcessor.getSignatureFromTag(sc.getTags());
 			if (signatureTag != null){
 				SignatureParser sp = SignatureParser.make();
 				ClassSignature classSignature = sp.parseClassSig(signatureTag);
@@ -106,7 +112,7 @@ public class ModelExtraction {
 					String retClassName = refType.getClassName();
 					
 					
-					String methodSignatureTag = FlowAnalyzer.getClassSignatureFromTag( method.getTags());
+					String methodSignatureTag = PostProcessor.getSignatureFromTag( method.getTags());
 					if (methodSignatureTag != null){
 						SignatureParser sp = SignatureParser.make();
 						MethodTypeSignature methodTypeSignature = sp.parseMethodSig(methodSignatureTag);
@@ -134,14 +140,35 @@ public class ModelExtraction {
 					*/
 					
 					//TODO fill this in
-					if (retClassName.equals("java.util.List")){
+					//refType.getSootClass().getI
+					
+					//The return type is a list so get the element types
+					if (hasInterface(refType.getSootClass(), "java.util.List") || 
+							hasInterface(refType.getSootClass(), "java.util.Collection") ) {
+						String signature = PostProcessor.getSignatureFromTag(method.getTags());
+						logger.trace("");
+						List<String> genericClassNames = getClassNamesFromReturnSignature(signature);
+						//Size should be 1
+						if (genericClassNames.size() == 1){
+							getMethodReturnClassNames(Scene.v().getSootClass(genericClassNames.get(0)), classes, superTypeSignature);
+						}
+
+					} else if (hasInterface(refType.getSootClass(), "java.util.Map")) {
+						String signature = PostProcessor.getSignatureFromTag(method.getTags());
+						logger.trace("");
+						//Size may not be 2 because we only return non framework types
+						List<String> genericClassNames = getClassNamesFromReturnSignature(signature);
+						for (String genericClassName : genericClassNames){
+							getMethodReturnClassNames(Scene.v().getSootClass(genericClassName), classes, superTypeSignature);
+						}
 						
 					} else if (retClassName.equals("java.lang.Object")){
-					
+					//TODO this is where the generic type should be checked from the type parameter in class
+						
 					} else {
 						
 						
-						if (!classes.contains(retClassName) && !retClassName.startsWith("java.")){
+						if (!classes.contains(retClassName) && !PostProcessor.isFrameworkClass(retClassName)){
 							if (currentSuperTypeSignature != null){
 								getMethodReturnClassNames(Scene.v().getSootClass(retClassName), classes, currentSuperTypeSignature);
 							} else {
@@ -191,7 +218,7 @@ public class ModelExtraction {
 	@SuppressWarnings("restriction")
 	private void collectTypeParameterClassNames(ClassTypeSignature cts,  List<String> path){
 		for (SimpleClassTypeSignature p : cts.getPath()){
-			if (!FlowAnalyzer.isAndroidFramework(p.getName())){
+			if (!PostProcessor.isFrameworkClass(p.getName())){
 				path.add(p.getName());
 			}
 			//Look at the type arguments for each super class
@@ -205,6 +232,7 @@ public class ModelExtraction {
 		}
 	}
 	
+	/*
 	private String parseClassNameFromAnnotation(String signatureTag){
 	        Matcher matcher = pattern.matcher(signatureTag);
 	        if (matcher.matches()){
@@ -212,11 +240,12 @@ public class ModelExtraction {
 	        }
 	        return null;
 	}
-	
+	*/
 
 	
+	
 	/**
-	 * Excludes Object
+	 * Just return a list of the super classnames excludes Object and including current class
 	 * @return
 	 */
 	private List<String> getSuperClassNames(SootClass sootClass ){
@@ -237,7 +266,11 @@ public class ModelExtraction {
 	 * Excludes Object, derived from unmodifiable list so create a new one without Object
 	 * @return
 	 */
-	private List<SootClass> getSuperSootClasses(SootClass sootClass ){
+	@SuppressWarnings("restriction")
+	private List<SootClass> getSuperSootClasses(SootClass sootClass, boolean includeGenerics ){
+		if (sootClass.isInterface()){
+			return new ArrayList<SootClass>();
+		}
 		List<SootClass> superClasses = Scene.v().getActiveHierarchy().getSuperclassesOfIncluding(sootClass);
 
 		List<SootClass> superClassesWithoutObject = new ArrayList<SootClass>();
@@ -248,28 +281,55 @@ public class ModelExtraction {
 			}
 		}
 		
-		String signatureTag = FlowAnalyzer.getClassSignatureFromTag(sootClass.getTags());
-		if (signatureTag != null){
-			SignatureParser sp = SignatureParser.make();
-			ClassSignature classSignature = sp.parseClassSig(signatureTag);
-			FormalTypeParameter [] formalTypeParameters = classSignature.getFormalTypeParameters();
-			for (FormalTypeParameter ftp : formalTypeParameters){
+		if (includeGenerics){
+			//This is hacky but look at the generics for the extend and include them so 
+			//iterate over
+			String signatureTag = PostProcessor.getSignatureFromTag(sootClass.getTags());
+			if (signatureTag != null){
+				SignatureParser sp = SignatureParser.make();
+				ClassSignature classSignature = sp.parseClassSig(signatureTag);
+				FormalTypeParameter [] formalTypeParameters = classSignature.getFormalTypeParameters();
+				for (FormalTypeParameter ftp : formalTypeParameters){
+				}
+				ClassTypeSignature currentSuperTypeSignature = classSignature.getSuperclass();
+				logger.debug("");
+				
+				for (String _sc : getTypeByIdentifier(currentSuperTypeSignature.getPath()) ){
+					superClassesWithoutObject.add(Scene.v().getSootClass(_sc));
+				}
+	
+	
 			}
-			ClassTypeSignature currentSuperTypeSignature = classSignature.getSuperclass();
-			logger.debug("");
 			
-			for (String _sc : getTypeByIdentifier(currentSuperTypeSignature.getPath()) ){
-				superClassesWithoutObject.add(Scene.v().getSootClass(_sc));
-			}
-
-
 		}
-		
 		return superClassesWithoutObject;
 	}
 	
+	/**
+	 * 
+	 * @param sc
+	 * @param classInterface
+	 * @return
+	 */
+	private boolean hasInterface(SootClass sc, String classInterface){
+		if (sc.isInterface()){
+			return true;
+		}
+		for (SootClass s : getSuperSootClasses(sc, false)){
+			//Need to look at all the supers too
+			Iterator<SootClass> it = s.getInterfaces().iterator();
+			while (it.hasNext()){
+				SootClass i = it.next();
+				if (i.getName().equals(classInterface)){
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	
 	@SuppressWarnings("restriction")
-	public List<String> getTypeParameters(String sootSignatureTag){
+	public List<String> getClassTypeParameters(String sootSignatureTag){
 		SignatureParser sp = SignatureParser.make();
 		ClassSignature classSignature = sp.parseClassSig(sootSignatureTag);
 		FormalTypeParameter [] formalTypeParameters = classSignature.getFormalTypeParameters();
@@ -277,6 +337,13 @@ public class ModelExtraction {
 		return getTypeByIdentifier(currentSuperTypeSignature.getPath());
 	}
 	
+	
+	/**
+	 * example: public T getObject()
+	 * 
+	 * @param sootSignatureTag
+	 * @return
+	 */
 	@SuppressWarnings("restriction")
 	public boolean isReturnATypeParameter(String sootSignatureTag){
 		if (sootSignatureTag != null){
@@ -292,6 +359,28 @@ public class ModelExtraction {
 			}
 		}
 		return false;
+	}
+	
+	/**
+	 * For ()Ljava/util/ArrayList<Lbr/com/i2mobile/rotalitoralpe/models/Estabelecimento;>;
+	 * Return br.com.i2mobile.rotalitoralpe.models.Estabelecimento
+	 * 
+	 * @param listSignature
+	 * @return
+	 */
+	@SuppressWarnings("restriction")
+	public List<String> getClassNamesFromReturnSignature(String listSignature){
+		SignatureParser sp = SignatureParser.make();
+		MethodTypeSignature methodTypeSignature = sp.parseMethodSig(listSignature);
+		ReturnType returnType = methodTypeSignature.getReturnType();
+		if (returnType instanceof ClassTypeSignature){
+			
+			List<String> argTypes = getTypeByIdentifier(((ClassTypeSignature) returnType).getPath());
+			//For list there should only be one generic
+			return argTypes;
+		}
+		//PostProcessor.convertBytecodeToJavaClassName(classPath)
+		return new ArrayList<String>();
 	}
 
 }

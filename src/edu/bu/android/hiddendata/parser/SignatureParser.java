@@ -1,3 +1,5 @@
+//Pulled from sun.reflect.generics.parser.SignatureParser
+
 /*
  * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.

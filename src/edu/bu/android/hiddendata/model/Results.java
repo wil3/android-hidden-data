@@ -5,10 +5,10 @@ import java.util.Map;
 
 public class Results {
 	private String apkName;
+	private int callGraphEdges;
 	//private boolean hasObfuscation;
 	private Collection<String> usedGetMethodSignatures;
 	private Collection<String> hiddenGetMethodSignatures;
-	private int callGraphEdges;
 	private Map<String, Integer> getMethodsInApp;
 	
 	public String getApkName() {

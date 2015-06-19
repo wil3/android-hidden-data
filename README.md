@@ -148,3 +148,4 @@ We also need the Model constructor to be a source which is how the list becomes 
 * write results to file - Done
 * return types of generic lists
 * Problem with agnostic results
+* remove false positives

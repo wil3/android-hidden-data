@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
  * @author wil
  *
  */
+@Deprecated
 public class DalvikParser {
 
 	/*

@@ -10,6 +10,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +19,7 @@ import org.slf4j.LoggerFactory;
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
 
-import edu.bu.android.hiddendata.infoflow.RewireFlow;
+import edu.bu.android.hiddendata.infoflow.CallGraphAndroidPatcher;
 import edu.bu.android.hiddendata.model.DeserializeToUIConfig;
 import edu.bu.android.hiddendata.model.JsonUtils;
 import edu.bu.android.hiddendata.model.Results;
@@ -44,8 +46,8 @@ import soot.util.Chain;
  * @author William Koch
  *
  */
-public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
-	private static final Logger logger = LoggerFactory.getLogger(DeserializeToUiFlowAnalyzer.class.getName());
+public class DeserializeToUiPostProcessor extends PostProcessor {
+	private static final Logger logger = LoggerFactory.getLogger(DeserializeToUiPostProcessor.class.getName());
 
 	private InfoflowResults results;
 	private DeserializeToUIConfig modelResults;
@@ -55,7 +57,7 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 	 * @param context The application context
 	 * @param netToJsonFlowResults The results from the flow analsysi from the network to deserialize methods
 	 */
-	public DeserializeToUiFlowAnalyzer(File resultsFile , File netToJsonResultsFile, SetupApplication context, InfoflowResults netToJsonFlowResults){
+	public DeserializeToUiPostProcessor(File resultsFile , File netToJsonResultsFile, SetupApplication context, InfoflowResults netToJsonFlowResults){
 		super(context);
 		this.results = netToJsonFlowResults;
 		this.resultsFile = resultsFile;
@@ -69,6 +71,7 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 
 		Set<String> hiddenMethods = new HashSet<String>();
 		hiddenMethods.addAll(modelResults.getGetMethodSignatures());
+		
 		if (results != null){
 
 			/*
@@ -82,25 +85,18 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 			//Just add all the signatures of the sources into a list
 			for (ResultSinkInfo foundSink : results.getResults().keySet()) {
 				
-				
 				for (ResultSourceInfo foundSource : results.getResults().get(foundSink)) {
 					
 					//Make sure its form original source
 					if (isOriginalSource(foundSource.getSource().toString())){
-					
-						//TODO need to filter out possible false positives from List of model not derived from network
-						//if (isDeserializeToUIFlow(foundSink, foundSource)){
-							//Once we have the 
-							Stmt stmt = foundSource.getSource();
-							//foundSources.add(stmt.toString());
-							foundSources.addAll(getTaintedModelMethodFromFlow(foundSource));
-						//} else {
-							
-						//}
-					//Make sure its form original source
-					//if (isOriginalSource(foundJsonSources.getSource().toString())){
+						//First try seeign if the model is included in the path and just walk backwards
+						Set<String>  path = getTaintedModelMethodFromFlow(foundSource);
 						
-					//}
+						//Otherwise as a last resort look directly at the 
+						if (path.isEmpty()){
+							
+						}
+						foundSources.addAll(path);
 					}
 				}
 			}
@@ -121,14 +117,14 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 		
 		Map<String, Integer> getMethodsInApp =  locateAllGetMethods();
 		
-		Results results = new Results();
 		
+		//Write the results
+		Results results = new Results();
 		results.setApkName(new File(context.getApkFileLocation()).getName());
-		results.setCallGraphEdges(RewireFlow.CALLGRAPH_EDGES);
+		results.setCallGraphEdges(CallGraphAndroidPatcher.CALLGRAPH_EDGES);
 		results.setGetMethodsInApp(getMethodsInApp);
 		results.setHiddenGetMethodSignatures(hiddenMethods);
 		results.setUsedGetMethodSignatures(foundSources);
-		
 		JsonUtils.writeResults(resultsFile, results);		
 		
 	}
@@ -139,14 +135,18 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 		Scene.v().getCallGraph().size();
 	}
 	
+	/**
+	 * Search the entire APK for instances of any of the get methods occuring so we can 
+	 * get an idea of coverage
+	 * @return
+	 */
 	private Map<String, Integer> locateAllGetMethods(){
 		
+		//Ideally for readability we want this in ascending order so we know which
+		//methods are not used at all
+		SortedMap<String, Integer> methodOccurences = new TreeMap<String, Integer>();
 		
-		
-		
-		Map<String, Integer> methodOccurences = new HashMap<String, Integer>();
-		
-		//Init
+		//Init method occurences to 0
 		for (String getClassName : modelResults.getGetMethodSignatures()){
 			methodOccurences.put(getClassName, 0);
 		}
@@ -155,7 +155,7 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 		Iterator<SootClass> it = classes.iterator();
 		while (it.hasNext()){
 			final SootClass sc = it.next();
-			if (isAndroidFramework(sc.getName())){
+			if (isFrameworkClass(sc.getName())){
 				continue;
 			}
 			for (SootMethod method : sc.getMethods()){
