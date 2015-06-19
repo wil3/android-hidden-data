@@ -70,17 +70,18 @@
 
 		<!-- From local repo -->
 
-
+	
 		<dependency>
 			<groupId>edu.bu.android_mitm</groupId>
 			<artifactId>soot-infoflow</artifactId>
 			<version>1.0-16062015</version>
 		</dependency>
+	
 		<dependency>
 			<groupId>edu.bu.android_mitm</groupId>
 			<artifactId>soot-infoflow-android</artifactId>
 			<version>1.0-16062015</version>
-		</dependency>
+		</dependency> 
 		<dependency>
 			<groupId>android</groupId>
 			<artifactId>axmlprinter2</artifactId>

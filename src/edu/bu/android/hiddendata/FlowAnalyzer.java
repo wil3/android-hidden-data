@@ -1,8 +1,10 @@
 package edu.bu.android.hiddendata;
 
 import java.util.Iterator;
+import java.util.List;
 
 import soot.RefType;
+import soot.Scene;
 import soot.Type;
 import soot.Value;
 import soot.ValueBox;
@@ -16,6 +18,8 @@ import soot.jimple.infoflow.results.ResultSinkInfo;
 import soot.jimple.infoflow.results.ResultSourceInfo;
 import soot.jimple.internal.JInterfaceInvokeExpr;
 import soot.jimple.internal.JimpleLocal;
+import soot.tagkit.SignatureTag;
+import soot.tagkit.Tag;
 
 public abstract class FlowAnalyzer {
 	protected SetupApplication context;
@@ -48,6 +52,14 @@ public abstract class FlowAnalyzer {
 
 	}
 	
+	public static String getClassSignatureFromTag(List<Tag> tags){
+		for (Tag tag : tags){
+			if (tag instanceof SignatureTag){
+				return ((SignatureTag) tag).getSignature();
+			}
+		}
+		return null;
+	}
 	protected String extractModelFromInvokeStmt(InvokeStmt stmt){
 
 		 Value v = stmt.getInvokeExprBox().getValue();
@@ -107,6 +119,12 @@ public abstract class FlowAnalyzer {
 	}
 	
 	
+	public static boolean hasGeneric(String className){
+		return className.equals("java.util.List") ||
+				className.equals("java.util.ArrayList") || 
+				className.equals("java.util.LinkedList");
+	}
+	
 	/**
 	 * Because callbacks add additoinal seeds make sure we are only looking at the originals
 	 * @param stmtString
@@ -124,7 +142,7 @@ public abstract class FlowAnalyzer {
 		return false;
 	}
 	
-	protected String convertBytecodeToJavaClassName(String classPath){
+	public static String convertBytecodeToJavaClassName(String classPath){
 		//TODO this wont work for all cases
 		if (classPath.endsWith(";")){
 			classPath = classPath.substring(classPath.indexOf("L") + 1, classPath.length() -1);

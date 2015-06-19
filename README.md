@@ -134,3 +134,17 @@ If source is IP ip = new IP() the flow is found suggesting the problem is the ca
 So if we taint the List by injecting an add of the model type, we can then get paths to the sink and we just have to check for the source that is fromJson which would mean that that tainted List actually does flow to the UI sink
 
 We also need the Model constructor to be a source which is how the list becomes tainted
+
+#Generics and Type Parameters
+
+* If model extends class with generics, look at parent class and replace any return values with type defined by child
+* look through extended generic path and collect any non android|java class add those to super class list
+
+
+#Checklist before leaving
+*Get pageadapter working - FIXED page adapter was not part of call graph
+*get addall working - FIXED
+*optimize validation class - Done
+* write results to file - Done
+* return types of generic lists
+* Problem with agnostic results

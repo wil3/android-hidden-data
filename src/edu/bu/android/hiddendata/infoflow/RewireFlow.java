@@ -62,6 +62,7 @@ import soot.util.Chain;
 public class RewireFlow implements PreAnalysisHandler {
 	private final Logger logger = LoggerFactory.getLogger(getClass());
 
+	public static int CALLGRAPH_EDGES = 0;
 	private static final String LISTVIEW_SETADAPTER_SIGNATURE = "<android.widget.ListView: void setAdapter(android.widget.ListAdapter)>";
 	private static final String NOTIFYCHANGE_SUBSIGNATURE = "void notifyDataSetChanged()";
 	
@@ -271,6 +272,7 @@ public class RewireFlow implements PreAnalysisHandler {
 	
 	/**
 	 * Look at every unit to find setAdapter
+	 * For Lists and ViewPagers
 	 * @param sootClass
 	 */
 	private void rewireListView(SootClass sootClass){
@@ -304,9 +306,10 @@ public class RewireFlow implements PreAnalysisHandler {
 					    		SootClass adapter = Scene.v().getSootClassUnsafe("android.widget.Adapter");
 					    		SootMethod getViewMethod = adapter.getMethodUnsafe("android.view.View getView(int,android.view.View,android.view.ViewGroup)");
 					    		
-					    		SootClass pageViewAdapter = Scene.v().getSootClassUnsafe("android.support.v4.view.ViewPager");
+					    		SootClass pageViewAdapter = Scene.v().getSootClassUnsafe("android.support.v4.view.PagerAdapter");
 					    		SootMethod instantiateItemMethod = pageViewAdapter.getMethodUnsafe("java.lang.Object instantiateItem(android.view.ViewGroup,int)");
-					    		
+					    		SootMethod instantiateItemMethod2 = pageViewAdapter.getMethodUnsafe("java.lang.Object instantiateItem(android.view.View,int)");
+
 					    		
 					    		
 					    		//Look for when adapter is set
@@ -330,26 +333,55 @@ public class RewireFlow implements PreAnalysisHandler {
 					    			InterfaceInvokeExpr getViewStmt;
 					    			//Look to find out what the callee is
 					    			if (hasSuperClass(expr.getMethodRef().declaringClass(), Collections.singletonList("android.support.v4.view.PagerAdapter"))){
-					    				getViewStmt = Jimple.v().newInterfaceInvokeExpr((Local)refValu, instantiateItemMethod.makeRef(), instantiateItemArgs);
+					    				List<Unit> chain = new ArrayList<Unit>();
+					    				
+					    				if (instantiateItemMethod != null){
+					    				chain.add(Jimple.v().newInvokeStmt(
+					    						Jimple.v().newVirtualInvokeExpr((Local)refValu, instantiateItemMethod.makeRef(), instantiateItemArgs)));
+					    				}
+					    				try {
+						    				if (instantiateItemMethod2 != null){
+							    				chain.add(Jimple.v().newInvokeStmt(
+							    						Jimple.v().newVirtualInvokeExpr((Local)refValu, instantiateItemMethod2.makeRef(), instantiateItemArgs)));
+							    			}
+					    				} catch(Exception e){
+					    					logger.error(e.getMessage());
+					    				}
+					    				
+							    		units.insertAfter(chain, stmt);
 
 					    			} else {
 					    				//Create the call to view
 					    				getViewStmt = Jimple.v().newInterfaceInvokeExpr((Local)refValu, getViewMethod.makeRef(), getViewArgs);
+					    				//Patch
+							    		units.insertAfter(Jimple.v().newInvokeStmt(getViewStmt), stmt);
+							    		
 							    	}
 					    			
 					    			
 					    			
-						    		//Patch
-						    		units.insertAfter(Jimple.v().newInvokeStmt(getViewStmt), stmt);
 						    		
 					    		} else if (expr.getMethodRef().getSignature().equals(PAGEVIEW_SETADAPTER_SIGNATURE)){
-					    			Value argValue = expr.getArgBox(0).getValue();	
-						    		//Create the call to view
-						    		InterfaceInvokeExpr invokeExpr = Jimple.v().newInterfaceInvokeExpr((Local)argValue, instantiateItemMethod.makeRef(), instantiateItemArgs);
-						    		
-						    		//Patch
-						    		units.insertAfter(Jimple.v().newInvokeStmt(invokeExpr), stmt);
-						    		
+					    			
+					    			try{
+						    			Value argValue = expr.getArgBox(0).getValue();	
+							    		//Create the call to view
+						    			VirtualInvokeExpr invokeExpr = null;//Jimple.v().newVirtualInvokeExpr((Local)argValue, instantiateItemMethod.makeRef(), instantiateItemArgs);
+							    		
+						    			if (instantiateItemMethod != null){
+						    				invokeExpr =
+						    						Jimple.v().newVirtualInvokeExpr((Local)argValue, instantiateItemMethod.makeRef(), instantiateItemArgs);
+						    				
+						    			} else {
+						    				invokeExpr =
+								    				Jimple.v().newVirtualInvokeExpr((Local)argValue, instantiateItemMethod2.makeRef(), instantiateItemArgs);
+								    	}
+						    				
+							    		//Patch
+							    		units.insertAfter(Jimple.v().newInvokeStmt(invokeExpr), stmt);
+					    			} catch(Exception e){
+				    					logger.error(e.getMessage());
+				    				}
 					    		}
 					    		
 					    	}
@@ -412,7 +444,10 @@ public class RewireFlow implements PreAnalysisHandler {
 
 	@Override
 	public void onAfterCallgraphConstruction() {
-    	//logger.debug("{}",Scene.v().getCallGraph());
+		//Once the callgraph is created set the number edges to be reported
+		//in results, hacky i know
+		CALLGRAPH_EDGES = Scene.v().getCallGraph().size();
+		logger.trace("");
 	}
 
 }

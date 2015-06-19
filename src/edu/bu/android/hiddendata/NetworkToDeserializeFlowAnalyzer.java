@@ -40,6 +40,7 @@ import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
 import soot.SootMethod;
+import soot.SootMethodRef;
 import soot.Type;
 import soot.Unit;
 import soot.Value;
@@ -48,7 +49,10 @@ import soot.VoidType;
 import soot.javaToJimple.LocalGenerator;
 import soot.jimple.AbstractStmtSwitch;
 import soot.jimple.AssignStmt;
+import soot.jimple.CastExpr;
 import soot.jimple.ClassConstant;
+import soot.jimple.DefinitionStmt;
+import soot.jimple.InterfaceInvokeExpr;
 import soot.jimple.InvokeStmt;
 import soot.jimple.Stmt;
 import soot.jimple.StringConstant;
@@ -59,6 +63,7 @@ import soot.jimple.infoflow.results.ResultInfo;
 import soot.jimple.infoflow.results.ResultSinkInfo;
 import soot.jimple.infoflow.results.ResultSourceInfo;
 import soot.jimple.internal.AbstractInvokeExpr;
+import soot.jimple.internal.ImmediateBox;
 import soot.jimple.internal.JInterfaceInvokeExpr;
 import soot.jimple.internal.JimpleLocal;
 import soot.util.Chain;
@@ -82,6 +87,9 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 	private File sourcesAndSinksFile;
 	private File easyTaintWrapperFile;
 	private File resultsFile;
+	/**
+	 * What model is mapped to the signature so it can be created for injection
+	 */
 	HashMap<String, String> signatureToModelMapping = new HashMap<String, String>();
 
 	public HashMap<String, String> getModelToAddSignatureMapping() {
@@ -97,7 +105,7 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		this.results = results;
 		this.sourcesAndSinksFile = sourcesAndSinksFile;
 		this.easyTaintWrapperFile = easyTaintFile;
-		this.resultsFile = new File(sourcesAndSinksFile.getParentFile(),apkFileName + FindHidden.RESULTS_SUFFIX );
+		this.resultsFile = new File(sourcesAndSinksFile.getParentFile(),apkFileName + FindHidden.JSON_TO_UI_CONFIG_SUFFIX );
 		
 		this.sourcesAndSinksListFile = sourceAndSinkListFile;
 		
@@ -242,8 +250,12 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		Set<String> allModels = new HashSet<String>();
 		for (String model : modelClassNames){
 			allModels.addAll(me.getModels(model));
+		}
+		for (String model : allModels){
 			sourceSignatures.add(makeDefaultSignatureConstructor(model));
 		}
+		//When we look at generics there are more classes we can find in the model
+		//sourceSignatures.addAll(getModelClasses(allModels));
 		
 		Set<String> listConstructorSources = new HashSet<String>();
 		Set<String> listAddModelSignatures = findAddMethods(listConstructorSources, allModels);
@@ -252,7 +264,7 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		//Write out results to be used for next pass
 		result.setGetMethodSignatures(modelMethodSignatures);
 		result.setModelNames(allModels);
-		result.setInjections(injections);
+		//result.setInjections(injections); //Done in ListAnalyzer
 		JsonUtils.writeResults(resultsFile, result);
 		
 		createEasyTaintWrapperFile(allModels);
@@ -262,9 +274,20 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 	
 	}
 	
+	private Set<String> getModelClasses(Set<String> getMethods){
+		Set<String> all = new HashSet<String>();
+		for (String signature : getMethods){
+		AndroidMethod am = AndroidMethod.createFromSignature(signature);
+		all.add(makeDefaultSignatureConstructor(am.getClassName()));
+		}
+		return all;
+	}
+	
 	/**
 	 * Create sigatures for all the add methods. We do this so we limit the number of sinks to this method
-	 * @param modelClassNames
+	 * @param listConstructorSources
+	 * @param modelClassNames All known models
+	 * @return All add and addAll methods
 	 */
 	private  Set<String> findAddMethods(final Set<String> listConstructorSources , final Set<String> modelClassNames){
 		
@@ -273,10 +296,10 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 		Iterator<SootClass> it = classes.iterator();
 		while (it.hasNext()){
 			final SootClass sc = it.next();
-			if (sc.toString().contains("ActivityBaseAdapterTest")){
-				int i=0;
+			if (sc.toString().contains("com.github.wil3.android.flowtests.D")){
+				logger.trace("");
 				//sc.setApplicationClass();
-
+				//new ModelExtraction().getModels(sc.getName());
 			}
 			if (isAndroidFramework(sc.getName())){
 				continue;
@@ -292,53 +315,142 @@ public class NetworkToDeserializeFlowAnalyzer extends FlowAnalyzer {
 				}
 				final Body body = method.retrieveActiveBody();
 				final PatchingChain<Unit> units = body.getUnits();
-				for(Iterator<Unit> iter = units.snapshotIterator(); iter.hasNext();) {
-					final Unit u = iter.next();
+				Unit[] unitArray = new Unit[units.size()];
+				unitArray = units.toArray(unitArray);
+				//for(Iterator<Unit> iter = units.snapshotIterator(); iter.hasNext();) {
+				//	final Unit u = iter.next();
+				for (int i=0; i<unitArray.length; i++){
+				//	Stmt stmt = (Stmt)u;
+					Stmt stmt = (Stmt)unitArray[i];		
 					
-					Stmt stmt = (Stmt)u;
-					if (!isAddMethod(stmt) && !stmt.toString().contains("<java.util.ArrayList: void <init>()>")){
-						continue;
-					}
+					if (stmt instanceof InvokeStmt){
 					
-				 	String modelClassName = extractClassFromListAdd(stmt);
-				 	if (modelClassName != null && modelClassNames.contains(modelClassName)){
-				 		String sig = makeSignature(sc, stmt);
-				 		signatureToModelMapping.put(sig, modelClassName);
-				 		addMethodSignatures.add(sig);
-				 		//If we have one per method thats good for now 
-				 		foundInMethod = true;
-				 		break;
-				 		
-				 		
-				 	//If an addAll is used then the parameter is an Object and 
-				 	//we dont know its type
-				 	} else if (isAddMethod(stmt)){//its an addAll and we cant get the model
-				 		String sig = makeSignature(sc, stmt);
-				 		signatureToModelMapping.put(sig, modelClassName);
-				 		addMethodSignatures.add(sig);
-				 		foundInMethod = true;
-				 		break;
-				 	} else if (stmt.toString().contains("<java.util.ArrayList: void <init>()>")){
-				 		String sig = makeSignature(sc, stmt);
-				 		listConstructorSources.add(sig);
-				 	}
-				 	/*
-					u.apply(new AbstractStmtSwitch() {
+						if (stmt.toString().contains("<java.util.List: boolean add(java.lang.Object)>")){
+							
+						 	String modelClassName = extractClassFromListAdd(stmt);
+						 	if (modelClassName != null && modelClassNames.contains(modelClassName)){
+						 		String sig = makeSignature(sc, stmt);
+						 		addMethodSignatures.add(sig);
+						 		signatureToModelMapping.put(sig, modelClassName);
+						 		//If we have one per method thats good for now 
+						 		foundInMethod = true;
+						 		break;
+						 	}
+						 	
+						} else if (stmt.toString().contains("<java.util.List: boolean addAll(java.util.Collection)>")){
+							//A casting must occur right before this
+							logger.info("");
+							String baseClass = findCasting(unitArray, i);
+							if (baseClass != null && modelClassNames.contains(baseClass)){
+								String sig = makeSignature(sc, stmt);
+						 		addMethodSignatures.add(sig);
+						 		signatureToModelMapping.put(sig, baseClass);
+							}
 						
-						 public void defaultCase(Object obj)
-						    {
-							 	
-						    }
-					});*/
+						} else if (stmt.toString().contains("<java.util.ArrayList: void <init>()>")){
+					 		String sig = makeSignature(sc, stmt);
+					 		listConstructorSources.add(sig);
+					 	}
+					
+					} else if (stmt instanceof AssignStmt){
+						
+						//Dont need this anymore because we found generics in tag signatures!
+						/*
+						AssignStmt assignStmt = (AssignStmt) stmt;
+						if (stmt.toString().contains("<java.util.List: java.lang.Object get(int)>") ||
+								stmt.toString().contains("<java.util.ArrayList: java.lang.Object get(int)>")){
+							
+							// The next instruction should be a cast to the actual object
+							Stmt nextStmt = (Stmt)iter.next();
+							if (nextStmt instanceof AssignStmt){
+								assignStmt = (AssignStmt) nextStmt;
+								if (assignStmt.getRightOp() instanceof CastExpr){
+									if (assignStmt.getRightOp().getType() instanceof RefType){
+										RefType refType = (RefType)assignStmt.getRightOp().getType();
+										String className = refType.getClassName();
+										logger.info("Class added to List.get {} ", className);
+									}
+								}
+							}
+						}
+						*/
+						
+					} //else if (stmt instanceof Cast)
+					
+				 	
 				}
 				if (foundInMethod){ //For performance limit to one per class
-					//break;
+					//break; //There may be multiple adds
 				}
 			}
 		}
 		return addMethodSignatures;
 	}
 	
+	/**
+	 * Return base class of the get added to collection 
+	 * @param units
+	 * @param start
+	 * @return
+	 */
+	private String findCasting(Unit[] units, int start){
+			Stmt stmt = (Stmt)units[start];
+			if (stmt instanceof InvokeStmt){
+				Value value = ((InvokeStmt) stmt).getInvokeExprBox().getValue();
+				if (value instanceof InterfaceInvokeExpr){
+					Value arg0 = ((InterfaceInvokeExpr)value).getArg(0);
+					//if (arg0 instanceof ImmediateBox){
+					//	Value arg0Value = ((ImmediateBox)arg0).getValue();
+						if (arg0 instanceof JimpleLocal){
+							String variableName = ((JimpleLocal)arg0).getName();
+							
+							//Casting should be next
+							Stmt castStmt = (Stmt)units[start-1];
+							if (castStmt instanceof AssignStmt){
+								//left equal previous variable?
+								
+								AssignStmt as = (AssignStmt)castStmt;
+								Value left = as.getLeftOp();
+								if (left instanceof JimpleLocal){
+									if (((JimpleLocal)left).getName().equals(variableName)){
+										
+										//Next previous instruction shoudl be our target
+										Stmt modelRef = (Stmt)units[start-2];
+										if (modelRef instanceof AssignStmt){
+											SootMethodRef methodRef = ((AssignStmt)modelRef).getInvokeExpr().getMethodRef();
+											SootMethod sm = methodRef.resolve();
+											
+											String methodSignatureTag = FlowAnalyzer.getClassSignatureFromTag( sm.getTags());
+
+											//If there is a generic type and the return is an object 
+											//then we grab the generic from the class
+											boolean isType = new ModelExtraction().isReturnATypeParameter(methodSignatureTag);
+											if (isType){ //Its a type parameter so pull it from the class signature
+											
+												Type retType = methodRef.returnType();
+												
+												//If the ret type is an Object than look at the class generics to see if this is right
+												SootClass sc = methodRef.declaringClass();
+												String sig = FlowAnalyzer.getClassSignatureFromTag(sc.getTags());
+												ModelExtraction me = new ModelExtraction();
+												List<String> typeClassNames = me.getTypeParameters(sig);
+												if (retType instanceof RefType && 
+														((RefType)retType).getClassName().equals("java.lang.Object")
+														&& !typeClassNames.isEmpty()){
+													return typeClassNames.get(0);
+												}
+											}
+										}
+									}
+								}
+								
+							}
+						}
+				}
+
+			}
+			return null;
+	}
 	
 	
 	private boolean isAddMethod(Stmt stmt){

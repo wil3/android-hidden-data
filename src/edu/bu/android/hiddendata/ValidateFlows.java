@@ -66,9 +66,9 @@ public class ValidateFlows {
 				
 					String thisClassName = "";
 					try {
-					Local thisLocal = b.getThisLocal();
-					Type type = thisLocal.getType();
-					thisClassName = type.toString();
+						Local thisLocal = b.getThisLocal();
+						Type type = thisLocal.getType();
+						thisClassName = type.toString();
 					} catch (Exception e){
 						
 					}

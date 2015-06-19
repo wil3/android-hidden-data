@@ -29,7 +29,7 @@ public class JsonUtils {
 		}
 		return map;
 	}
-	public static void writeResults(File resultsFile, DeserializeToUIConfig results){
+	public static void writeResults(File resultsFile, Object results){
 		Gson gson = new GsonBuilder().setPrettyPrinting().create();
 		PrintWriter writer = null;
 		try {

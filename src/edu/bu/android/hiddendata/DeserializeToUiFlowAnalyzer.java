@@ -17,8 +17,15 @@ import org.slf4j.LoggerFactory;
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
 
+import edu.bu.android.hiddendata.infoflow.RewireFlow;
 import edu.bu.android.hiddendata.model.DeserializeToUIConfig;
 import edu.bu.android.hiddendata.model.JsonUtils;
+import edu.bu.android.hiddendata.model.Results;
+import soot.Body;
+import soot.PatchingChain;
+import soot.Scene;
+import soot.SootClass;
+import soot.SootMethod;
 import soot.Unit;
 import soot.ValueBox;
 import soot.jimple.AssignStmt;
@@ -30,6 +37,7 @@ import soot.jimple.infoflow.android.source.data.SourceSinkDefinition;
 import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.results.ResultSinkInfo;
 import soot.jimple.infoflow.results.ResultSourceInfo;
+import soot.util.Chain;
 
 /**
  * 
@@ -41,25 +49,27 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 
 	private InfoflowResults results;
 	private DeserializeToUIConfig modelResults;
+	File resultsFile;
 	/**
 	 * 
 	 * @param context The application context
-	 * @param results The results from the flow analsysi from the network to deserialize methods
+	 * @param netToJsonFlowResults The results from the flow analsysi from the network to deserialize methods
 	 */
-	public DeserializeToUiFlowAnalyzer(File resultsFile , SetupApplication context, InfoflowResults results){
+	public DeserializeToUiFlowAnalyzer(File resultsFile , File netToJsonResultsFile, SetupApplication context, InfoflowResults netToJsonFlowResults){
 		super(context);
-		this.results = results;
-		
+		this.results = netToJsonFlowResults;
+		this.resultsFile = resultsFile;
 		//Obtained from the first pass where all the models are found
-		this.modelResults = JsonUtils.loadFirstPassResultFile(resultsFile);
+		this.modelResults = JsonUtils.loadFirstPassResultFile(netToJsonResultsFile);
 	}
 	
-	public List<String> findHiddenData(){
+	public void findHiddenData(){
 		
-		List<String> hiddenValues = new ArrayList<String>();
-		
+		Set<String> foundSources = new HashSet<String>();
+
+		Set<String> hiddenMethods = new HashSet<String>();
+		hiddenMethods.addAll(modelResults.getGetMethodSignatures());
 		if (results != null){
-			Set<String> foundSources = new HashSet<String>();
 
 			/*
 			 * There are currently 4 different types of flows
@@ -99,18 +109,87 @@ public class DeserializeToUiFlowAnalyzer extends FlowAnalyzer {
 			//whats left is hidden
 			for (String f : foundSources ){
 				logger.info("Method used! {}", f);
-				modelResults.getGetMethodSignatures().remove(f);
+				hiddenMethods.remove(f);
 			}
 			
 		}
-		for (String hidden : modelResults.getGetMethodSignatures()){
+		
+		
+		for (String hidden : hiddenMethods){
 			logger.info("HIDDEN {}", hidden);
 		}
 		
-		return hiddenValues;
+		Map<String, Integer> getMethodsInApp =  locateAllGetMethods();
+		
+		Results results = new Results();
+		
+		results.setApkName(new File(context.getApkFileLocation()).getName());
+		results.setCallGraphEdges(RewireFlow.CALLGRAPH_EDGES);
+		results.setGetMethodsInApp(getMethodsInApp);
+		results.setHiddenGetMethodSignatures(hiddenMethods);
+		results.setUsedGetMethodSignatures(foundSources);
+		
+		JsonUtils.writeResults(resultsFile, results);		
+		
 	}
 	
+	private void writeResults(){
+		Results results = new Results();
+		
+		Scene.v().getCallGraph().size();
+	}
 	
+	private Map<String, Integer> locateAllGetMethods(){
+		
+		
+		
+		
+		Map<String, Integer> methodOccurences = new HashMap<String, Integer>();
+		
+		//Init
+		for (String getClassName : modelResults.getGetMethodSignatures()){
+			methodOccurences.put(getClassName, 0);
+		}
+
+		Chain<SootClass> classes = Scene.v().getClasses();
+		Iterator<SootClass> it = classes.iterator();
+		while (it.hasNext()){
+			final SootClass sc = it.next();
+			if (isAndroidFramework(sc.getName())){
+				continue;
+			}
+			for (SootMethod method : sc.getMethods()){
+				if (!method.hasActiveBody()){
+					try {
+					method.retrieveActiveBody();
+					}catch (Exception e){
+						continue;
+					}
+				}
+				final Body body = method.retrieveActiveBody();
+				final PatchingChain<Unit> units = body.getUnits();
+				Unit[] unitArray = new Unit[units.size()];
+				unitArray = units.toArray(unitArray);
+				for(Iterator<Unit> iter = units.snapshotIterator(); iter.hasNext();) {
+					final Unit u = iter.next();
+					
+					//For this 
+					for (String getClassName : modelResults.getGetMethodSignatures()){
+						if (u.toString().contains(getClassName)){
+							//if (methodOccurences.containsKey(getClassName)){
+							int c = methodOccurences.get(getClassName);
+							methodOccurences.put(getClassName, c+1);
+							//} else {
+							//	methodOccurences.put(getClassName, 1);
+							//}
+							break;
+						}
+					}
+				}
+			}
+		}
+		return methodOccurences;
+	}
 	/**
 	 * When we find a flow we must find out which method from the model was tainted and 
 	 * ended up at the sink. This will identify data that is displayed to the user.

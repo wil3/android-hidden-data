@@ -7,6 +7,8 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.RuntimeMXBean;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -36,7 +38,8 @@ public class FindHidden {
 	
 	public enum Mode {
 		NETWORK_TO_DESERIALIZE,
-		DESERIALIZE_TO_UI
+		DESERIALIZE_TO_UI,
+		LIST_ANALYSIS
 	}
 	
 	private static final Logger logger = LoggerFactory.getLogger(FindHidden.class.getName());
@@ -46,11 +49,13 @@ public class FindHidden {
 	private static int timeout = -1;
 	private static int sysTimeout = -1;
 	
-	protected static final String RESULT_DIRECTORY = "results-1";
-	protected static final String SOURCESINK_SUFFEX = "-sources_sinks.txt";
+	protected static final String RESULT_DIRECTORY = "results";
+	protected static final String SOURCESINK_SUFFEX = "-json2ui_sources_sinks.txt";
 	protected static final String EASY_TAINT_WRAPPER_FILE_PREFIX = "-easytaintwrapper.txt";
+	protected static final String JSON_TO_UI_CONFIG_SUFFIX = "-json2ui_config.json";
+	protected static final String LIST_SUFFIX = "-list_sources_sinks.txt";
 	protected static final String RESULTS_SUFFIX = "-results.json";
-	
+
 	private static String injectionsFilePath = null;
 	private static String sourcesAndSinksFilePath = "SourcesAndSinks.txt";
 	private static String easyTaintFilePath = null;
@@ -175,24 +180,40 @@ public class FindHidden {
 			File apkResult1Dir = new File("./" + RESULT_DIRECTORY + "/" + apkFileName);
 			
 			//If the file already exists then do the second pass
-			if (apkResult1Dir.exists()){
-				mode = Mode.DESERIALIZE_TO_UI;
-			} else {
+			if (!apkResult1Dir.exists()){
 				apkResult1Dir.mkdirs();
-				mode = Mode.NETWORK_TO_DESERIALIZE;
+
+				//mode = Mode.DESERIALIZE_TO_UI;
+			} else {
+				//mode = Mode.NETWORK_TO_DESERIALIZE;
 			}
 			
 			
+			File pass1FlagFile = new File(apkResult1Dir, "net2json.flag");
+			File pass2FlagFile = new File(apkResult1Dir, "json2ui.flag");
+			//File pass3FlagFile = new File(apkResult1Dir, ".pass3");
+			
+			mode = Mode.NETWORK_TO_DESERIALIZE;
+
+			if (pass1FlagFile.exists()){
+				mode = Mode.DESERIALIZE_TO_UI;
+				if (pass2FlagFile.exists()){
+					//if (pass3FlagFile.exists()){//Done
+						logger.warn("Already ran analysis");
+						return;
+					//}
+				}
+			}
 			
 			
 			
 			AnalysisResults results = null;
 			
-			File sourceSinkFileList = new File(apkResult1Dir, apkFileName + "-sources_sinks2.txt");
-
+			File sourceSinkFileList = new File(apkResult1Dir, apkFileName + LIST_SUFFIX);
+			File sourceSinkFileResults = new File(apkResult1Dir, apkFileName + RESULTS_SUFFIX);
 			File sourceSinkFileDeserializeToUI = new File(apkResult1Dir, sourceAndSinkFileName);
 			File easyTaintFileDeserializeToUI  = new File(apkResult1Dir, easyTaintFileName );
-			File resultsFile = new File(apkResult1Dir, apkFileName + FindHidden.RESULTS_SUFFIX );
+			File jsonToUIresultsFile = new File(apkResult1Dir, apkFileName + FindHidden.JSON_TO_UI_CONFIG_SUFFIX );
 
 			final long beforeRun = System.nanoTime();
 
@@ -204,7 +225,7 @@ public class FindHidden {
 					logger.info("=========================================");
 
 					//Keep the source sink and easy taint default
-					Infoflow.setPathAgnosticResults(true);
+					//Infoflow.setPathAgnosticResults(true);
 
 					logger.info("Using " + sourcesAndSinksFilePath + " as source-sink file.");
 
@@ -237,23 +258,27 @@ public class FindHidden {
 						easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
 
 						results = runAnalysis(fullFilePath, args[1]);
-						ListAnalyzer la = new ListAnalyzer(results.context, results.infoFlowResults, pass1, resultsFile);
+						ListAnalyzer la = new ListAnalyzer(results.context, results.infoFlowResults, pass1, jsonToUIresultsFile);
 						la.process();
 						System.gc();
 					//} else {
 					//	logger.warn("No models were found being added to lists");
 					//}
+						
+					pass1FlagFile.createNewFile();
 
 				}
-				
+				case LIST_ANALYSIS: {
+					
+				}
 				case DESERIALIZE_TO_UI: {
 					logger.info("=========================================");
 					logger.info("Pass 2: Deserializer to UI");
 					logger.info("=========================================");
 
 
-					Infoflow.setPathAgnosticResults(false);
-					injectionsFilePath = resultsFile.getAbsolutePath();
+					//Infoflow.setPathAgnosticResults(false);
+					injectionsFilePath = jsonToUIresultsFile.getAbsolutePath();
 					
 					sourcesAndSinksFilePath = sourceSinkFileDeserializeToUI.getAbsolutePath();
 					easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
@@ -264,8 +289,10 @@ public class FindHidden {
 					results = runAnalysis(fullFilePath, args[1]);
 					
 					//Now we are done so we need to figure out where we didnt have mappings
-					new DeserializeToUiFlowAnalyzer(resultsFile, results.context, results.infoFlowResults).findHiddenData();
+					new DeserializeToUiFlowAnalyzer(sourceSinkFileResults, jsonToUIresultsFile, results.context, results.infoFlowResults).findHiddenData();
 						
+					pass2FlagFile.createNewFile();
+
 				}
 			}
 
@@ -502,17 +529,74 @@ public class FindHidden {
 		return easyTaintFilePath == null ? "" : easyTaintFilePath;
 	}
 	private static void runAnalysisSysTimeout(final String fileName, final String androidJar) {
-		String logFileName = "_out-" + new File(fileName).getName() + ".log";
+		
+		RuntimeMXBean runtimeMxBean = ManagementFactory.getRuntimeMXBean();
+		List<String> jvmArgs = runtimeMxBean.getInputArguments();
+		
 
 		String classpath = System.getProperty("java.class.path");
 		String javaHome = System.getProperty("java.home");
 		String executable = "/usr/bin/timeout";
+		
 //TODO pull request, this was set to timeout in minutes, docs say seconds
+		
+		List<String> cmd = new ArrayList<String>();
+		
+		//The timeout executable
+		cmd.add(executable);
+		cmd.add("-s");
+		cmd.add( "KILL");
+		cmd.add(sysTimeout + "s");
+
+		//The executable to run
+		cmd.add(javaHome + "/bin/java");
+		
+		//The jvm arguments, same as we started
+		cmd.addAll(jvmArgs);
+		
+		cmd.add("-cp");
+		cmd.add(classpath);
+		cmd.add("edu.bu.android.hiddendata.FindHidden");
+		
+		//The arguments
+		cmd.add(fileName);
+		cmd.add(androidJar);
+		
+		//Flags
+		cmd.add(stopAfterFirstFlow ? "--singleflow" : "--nosingleflow");
+		cmd.add(useFragments ? "--fragments" : "--nofragments");
+		cmd.add(implicitFlows ? "--implicit" : "--noimplicit");
+		cmd.add(staticTracking ? "--static" : "--nostatic");
+		cmd.add(flowSensitiveAliasing ? "--aliasflowsens" : "--aliasflowins");
+		cmd.add(computeResultPaths ? "--paths" : "--nopaths");
+		cmd.add(aggressiveTaintWrapper ? "--aggressivetw" : "--nonaggressivetw");
+		cmd.add(enableCallbacks ? "--callbacks" : "--nocallbacks");
+		cmd.add(enableExceptions ? "--exceptions" : "--noexceptions");
+		
+		cmd.add("--aplength");
+		cmd.add(Integer.toString(accessPathLength));
+		
+		cmd.add("--cgalgo");
+		cmd.add(callgraphAlgorithmToString(callgraphAlgorithm));
+
+		cmd.add("--layoutmode");
+		cmd.add(layoutMatchingModeToString(layoutMatchingMode));
+		
+		cmd.add("--pathalgo");
+		cmd.add(pathAlgorithmToString(pathBuilder));
+		
+		cmd.add("--SOURCESSINKS");
+		cmd.add(sourcesAndSinksFilePath);
+		
+		if (easyTaintFilePath != null){
+			cmd.add("--EASYTAINT");
+			cmd.add(easyTaintFilePath);
+		}
+
 		String[] command = new String[] { executable,
 				"-s", "KILL",
 				sysTimeout + "s",
 				javaHome + "/bin/java",
-				"-Dorg.slf4j.simpleLogger.defaultLogLevel=info",
 				"-cp", classpath,
 				"edu.bu.android.hiddendata.FindHidden",
 				fileName,
@@ -533,9 +617,14 @@ public class FindHidden {
 				"--SOURCESSINKS", sourcesAndSinksFilePath,
 				"--EASYTAINT", easyTaintToString()
 		};
-		System.out.println("Running command: " + Arrays.toString(command));
+		logger.info("Running command: {}", cmd);
+		
+		
+		String[] commandArray = new String[cmd.size()];
+		commandArray = cmd.toArray(commandArray);
+		
 		try {
-			ProcessBuilder pb = new ProcessBuilder(command);
+			ProcessBuilder pb = new ProcessBuilder(commandArray);
 			//pb.inheritIO();
 			
 			//All of the proper logs are redirected to error

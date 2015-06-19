@@ -36,7 +36,7 @@ public class DebugHelp implements PreAnalysisHandler{
 					continue;
 				}
 				
-				logger.debug("{} {}", sc.getName(),  method.retrieveActiveBody());
+				logger.info("{} {}", sc.getName(),  method.retrieveActiveBody());
 
 			}
 		}
