@@ -50,6 +50,9 @@ import soot.jimple.infoflow.entryPointCreators.AndroidEntryPointConstants;
 import soot.jimple.infoflow.handlers.PreAnalysisHandler;
 import soot.jimple.internal.JVirtualInvokeExpr;
 import soot.jimple.toolkits.callgraph.CallGraphBuilder;
+import soot.tagkit.LineNumberTag;
+import soot.tagkit.SourceLnPosTag;
+import soot.tagkit.Tag;
 import soot.util.Chain;
 
 /**
@@ -144,7 +147,14 @@ public class CallGraphAndroidPatcher implements PreAnalysisHandler {
 					    		//Create new constructor for model
 					    		SootClass classToInject = Scene.v().getSootClassUnsafe(inject.getClassNameToInject());
 					    		SootMethod getViewMethod = classToInject.getMethodUnsafe("void <init>()");
-					    			
+					    		
+					    		//For new injected code have the same line number as the injection point
+						    	Tag tag = (SourceLnPosTag)invokeStmt.getTag("SourceLnPosTag");
+						    	if(tag== null){
+						    		//get line from bytecode
+						    		tag = (LineNumberTag)invokeStmt.getTag("LineNumberTag");
+							    	
+						    	}
 	
 	//TODO how to make this more flexible for different injectino types?			    			
 					    		
@@ -155,7 +165,9 @@ public class CallGraphAndroidPatcher implements PreAnalysisHandler {
 					    		chainToInsert.add(Jimple.v().newAssignStmt(tempLocal, newClass));
 					    		
 					    		SpecialInvokeExpr invokeConstructor = Jimple.v().newSpecialInvokeExpr(tempLocal, getViewMethod.makeRef());
-					    		chainToInsert.add(Jimple.v().newInvokeStmt(invokeConstructor));
+					    		Stmt constructorStmt = Jimple.v().newInvokeStmt(invokeConstructor);
+					    		constructorStmt.addTag(tag);
+					    		chainToInsert.add(constructorStmt);
 					    		
 					    		
 					    		//Create the call to view
@@ -180,8 +192,14 @@ public class CallGraphAndroidPatcher implements PreAnalysisHandler {
 				});
 			}
 			
-			//if (patched){
-			//}
+			if (patched){
+				Unit[] u = new Unit[body.getUnits().size()];
+				u = body.getUnits().toArray(u);
+				int lineNumber2 = u[13].getJavaSourceStartLineNumber();
+
+				int lineNumber = u[15].getJavaSourceStartLineNumber();
+				logger.trace("");
+			}
 
 		}
 	}
@@ -231,6 +249,8 @@ public class CallGraphAndroidPatcher implements PreAnalysisHandler {
 		final Body body = doInBackgroundMethod.retrieveActiveBody();
 		final Local local = body.getThisLocal();
 		final SootMethod onPostExecuteMethod = getCorrespondingonPostExecuteMethod(doInBackgroundMethod);
+		if (onPostExecuteMethod == null){return;}
+		
 		final PatchingChain<Unit> units = body.getUnits();
 		
 		for(Iterator<Unit> iter = units.snapshotIterator(); iter.hasNext();) {
@@ -241,7 +261,7 @@ public class CallGraphAndroidPatcher implements PreAnalysisHandler {
 			    public void caseReturnStmt(ReturnStmt stmt)
 			    {
 			    	Value value = stmt.getOpBox().getValue();
-			    	if (! (value instanceof NullConstant)){
+			    	if (!(value instanceof NullConstant)){
 			    		InvokeExpr vie = Jimple.v().newVirtualInvokeExpr(local, onPostExecuteMethod.makeRef(), value);
 			    		InvokeStmt onPostExecuteStatement = Jimple.v().newInvokeStmt(vie);
 			    	

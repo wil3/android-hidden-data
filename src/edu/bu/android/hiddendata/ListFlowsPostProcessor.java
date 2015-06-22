@@ -1,6 +1,10 @@
 package edu.bu.android.hiddendata;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -8,6 +12,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import edu.bu.android.hiddendata.PostProcessor.ListFlow;
 import edu.bu.android.hiddendata.model.DeserializeToUIConfig;
@@ -22,21 +29,25 @@ import soot.jimple.infoflow.results.ResultSinkInfo;
 import soot.jimple.infoflow.results.ResultSourceInfo;
 
 public class ListFlowsPostProcessor extends PostProcessor {
+	private static final Logger logger = LoggerFactory.getLogger(ListFlowsPostProcessor.class.getName());
+
 	private InfoflowResults results;
 	private DeserializeToUIConfig modelResults;
 	private File resultsFile;
-	
+	File sourceSinkFileDeserializeToUI;
+
 	/**
 	 * 
 	 * @param context
 	 * @param results
 	 * @param netToModelResultsFile 	So we can fill in injectins 
 	 */
-	public ListFlowsPostProcessor(SetupApplication context,  InfoflowResults results, File netToModelResultsFile ) {
+	public ListFlowsPostProcessor(SetupApplication context,  InfoflowResults results, File netToModelResultsFile, File sourceSinkFileDeserializeToUI ) {
 		super(context);
 		this.results = results;
 		this.resultsFile = netToModelResultsFile;
 		this.modelResults = JsonUtils.loadFirstPassResultFile(netToModelResultsFile);
+		this.sourceSinkFileDeserializeToUI = sourceSinkFileDeserializeToUI;
 
 	}
 
@@ -69,7 +80,7 @@ public class ListFlowsPostProcessor extends PostProcessor {
 			}
 		}
 		
-		
+		List<String> signatures = new ArrayList<String>();
 		Set<InjectionPoint> injections = new HashSet<InjectionPoint>();
 		Iterator<String> it = addMethodParameterClassNames.keySet().iterator();
 		while(it.hasNext()){
@@ -86,10 +97,15 @@ public class ListFlowsPostProcessor extends PostProcessor {
 			inject.setClassNameToInject(addMethodParameterClassName);
 			injections.add(inject);
 		
+			
+			signatures.add(makeDefaultSignatureConstructor(addMethodParameterClassName, resultInfo.source.getDeclaringClass().getName(), resultInfo.source.getStmt().getJavaSourceStartLineNumber() ));
 		}
 		
 		modelResults.setInjections(injections);
 		JsonUtils.writeResults(resultsFile, modelResults);
+		
+		//Add unique specific sources to the last pass
+		appendToSourceSinkFile( signatures);
 		
 	}
 	
@@ -99,5 +115,28 @@ public class ListFlowsPostProcessor extends PostProcessor {
 		am.setDeclaredClass(sc.getName());
 		String signatureWithLineNumber = am.getSignature();
 		return signatureWithLineNumber;
+	}
+
+
+	private String makeDefaultSignatureConstructor(String className, String declaredClass, int lineNumber){
+		AndroidMethod am = new AndroidMethod("<init>", "void", className);
+		am.setDeclaredClass(declaredClass);
+		am.setLineNumber(lineNumber);
+		return am.getSignature();
+	}
+	
+	/**
+	 * Append model constructors as sources
+	 * @param signatures
+	 */
+	private void appendToSourceSinkFile(List<String> signatures){
+		try(PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(sourceSinkFileDeserializeToUI, true)))) {
+			for (String s : signatures){
+				out.println(s + " -> _SOURCE_");
+			}
+		}catch (IOException e) {
+		    //exception handling left as an exercise for the reader
+			logger.error("Cant append to source sink file " + sourceSinkFileDeserializeToUI.getAbsolutePath());
+		}
 	}
 }

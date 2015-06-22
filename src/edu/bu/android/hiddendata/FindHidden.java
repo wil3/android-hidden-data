@@ -56,6 +56,7 @@ public class FindHidden {
 	protected static final String LIST_SUFFIX = "-list_sources_sinks.txt";
 	protected static final String RESULTS_SUFFIX = "-results.json";
 
+	private static String resultsDirectory = RESULT_DIRECTORY;
 	private static String injectionsFilePath = null;
 	private static String sourcesAndSinksFilePath = "SourcesAndSinks.txt";
 	private static String easyTaintFilePath = null;
@@ -147,23 +148,9 @@ public class FindHidden {
 		for (final String fullFilePath : apkFiles) {
 			//final String fullFilePath;
 			
-			// Directory handling
-			if (apkFiles.size() > 1) {
-				/*
-				if (apkFile.isDirectory()) {
-					fullFilePath = args[0] + File.separator + fileName;
-				} else {
-					fullFilePath = fileName;
-				}
-				*/
-				System.out.println("Analyzing file " + fullFilePath + "...");
-				File flagFile = new File("_Run_" + new File(fullFilePath).getName());
+	
+			System.out.println("Analyzing file " + fullFilePath + "...");
 				
-				if (flagFile.exists())
-					continue;
-				flagFile.createNewFile();
-				
-			} 
 			
 
 			//Set the source sink file to be used
@@ -171,7 +158,7 @@ public class FindHidden {
 			String sourceAndSinkFileName = apkFileName + SOURCESINK_SUFFEX;
 			String easyTaintFileName = apkFileName + EASY_TAINT_WRAPPER_FILE_PREFIX;
 
-			File apkResult1Dir = new File(RESULT_DIRECTORY, apkFileName);
+			File apkResult1Dir = new File(resultsDirectory, apkFileName);
 			
 			//If the file already exists then do the second pass
 			if (!apkResult1Dir.exists()){
@@ -187,7 +174,7 @@ public class FindHidden {
 			}
 			
 			
-			File netToModelFlagFile = new File(apkResult1Dir, "net2jmodel.flag");
+			File netToModelFlagFile = new File(apkResult1Dir, "net2model.flag");
 			File listFlagFile = new File(apkResult1Dir, "list.flag");
 			File modelToUIFlagFile = new File(apkResult1Dir, "model2ui.flag");
 			//File pass3FlagFile = new File(apkResult1Dir, ".pass3");
@@ -201,7 +188,7 @@ public class FindHidden {
 					mode = Mode.DESERIALIZE_TO_UI;
 					if (modelToUIFlagFile.exists()){
 						logger.warn("Already ran analysis");
-						return;
+						continue;
 					}
 				}
 			}
@@ -234,7 +221,7 @@ public class FindHidden {
 					//results = run(fullFilePath, args[1]);
 					results = runAnalysis(fullFilePath, args[1]);
 					
-					if (results.infoFlowResults == null){
+					if (results.infoFlowResults == null || results.infoFlowResults.isEmpty()){
 						logger.error("Could not find any flows from Network to Deserialize, cannot continue");
 						return;
 					}
@@ -268,7 +255,7 @@ public class FindHidden {
 					//easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
 
 					results = runAnalysis(fullFilePath, args[1]);
-					ListFlowsPostProcessor la = new ListFlowsPostProcessor(results.context, results.infoFlowResults, jsonToUIresultsFile);
+					ListFlowsPostProcessor la = new ListFlowsPostProcessor(results.context, results.infoFlowResults, jsonToUIresultsFile, sourceSinkFileDeserializeToUI);
 					la.process();
 					System.gc();
 					
@@ -372,6 +359,9 @@ public class FindHidden {
 				cmd.add("--EASYTAINT");
 				cmd.add(easyTaintFilePath);
 			}
+			
+			cmd.add("--output");
+			cmd.add(resultsDirectory);
 	
 			logger.info("Running command: {}", cmd);
 			
@@ -580,8 +570,11 @@ public class FindHidden {
 			else if (args[i].equalsIgnoreCase("--easytaint")){
 				easyTaintFilePath = args[i + 1];
 				i += 2;
-			}
-			else
+			} 
+			else if (args[i].equalsIgnoreCase("--output")){
+				resultsDirectory = args[i + 1];
+				i += 2;
+			}else
 				i++;
 		}
 		return true;
@@ -671,6 +664,7 @@ public class FindHidden {
 		System.out.println("\t--FRAGMENTS Enable use of Fragments, not enabled by default");
 		System.out.println("\t--SOURCESSINKS Full path of SourcesAndSinks.txt");
 		System.out.println("\t--EASYTAINT Full path of easy taint wrapper file.");
+		System.out.println("\t--OUTPUT (Optional) Output directory");
 		System.out.println();
 		System.out.println("Supported callgraph algorithms: AUTO, CHA, RTA, VTA, SPARK");
 		System.out.println("Supported layout mode algorithms: NONE, PWD, ALL");

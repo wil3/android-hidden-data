@@ -247,15 +247,18 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 			allModels.addAll(me.getModels(model));
 		}
 		
-		//Add all models as sources
-		for (String model : allModels){
-			sourceSignatures.add(makeDefaultSignatureConstructor(model));
-		}
+		//Add model constructors that are to be injected into lists to force taint
+		//Moving this to be done in ListAnalyzer
+		//for (String model : allModels){
+		//	sourceSignatures.add(makeDefaultSignatureConstructor(model));
+		//}
+		
 		//Add all model get methods as sources. This is to workaround issue 
 		//with agnostic results not necessarily chosen the path that has 
 		//the model fully tainted and therefore during post analysis can not be retrieved
 		//to find what get methods are at sink
 		sourceSignatures.addAll(modelMethodSignatures);
+		
 		
 		Set<String> listConstructorSources = new HashSet<String>();
 		Set<String> listAddModelSignatures = findAddMethods(listConstructorSources, allModels);
@@ -270,6 +273,7 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		
 		createEasyTaintWrapperFile(allModels);
 		
+		//TODO Need to have the model constructuros specific to the injection
 		//Now create a new sink source file for the next pass
 		createSinkSourceFile("./Sinks_ui.txt", sourcesAndSinksFile, sourceSignatures, sinkSignatures);
 	

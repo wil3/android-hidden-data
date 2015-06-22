@@ -14,6 +14,14 @@ mvn install
 mvn assembly:assembly
 ```
 
+#Results
+
+Each run produces a rile [apk name]-results.json
+This file contains information about data that was found and hidden
+
+All gets are used for sources in model2ui
+If a path is found to a sink from both a model constructor and a get, to the same sink we assume it is derived from an injected constructor in a list and this get is part of the model
+
 #Files
 
 SourcesAndSinks_init.txt
@@ -24,6 +32,7 @@ parameter-index-lookup.json
 
 
 #Coverage
+
 ##ListViews and Adapters
 * Model is extracted from the fromJson method
 * All constructors of Lists of this model type are located (by first finding flows from List constructor to add method) and then a model
@@ -48,14 +57,6 @@ There is no need to use any annotations to indicate a field is to be included fo
 * Fields corresponding to the outer classes in  inner classes, anonymous classes, and local classes are ignored and not included in serialization or deserialization
 
 
-
-#Known Issues
-
-* If parameter is refType we can not identify the varaible reference
-
-This could possibly be fixed by modifying Infoflow.java line 583
-
-
 #TODO 
 
 * If we can find all instances of the model, can we set those as sources at the locations found to see if they flow there?
@@ -73,11 +74,12 @@ There is a JCastExpr value, the assignment is what needs to be tainted. This mus
 
 * 6-11-15 What happens if a model returns a list?
 * What about other things other than lists, need hashmap, sets, etc
+
 #Coverage
 * Async tasks (yes)
 * Fragments (yes)
 * Handlers?
-* Base adapter? It looks like this is missing from call graph
+* Base adapter? Yes
 * Threads?
 * Adapters? Use setadapter as a sink?
 	Play with getting at least the adapter part working, then do preprocessing to get the class sig that extend base adapter
@@ -88,30 +90,19 @@ There is a JCastExpr value, the assignment is what needs to be tainted. This mus
 *Generics
 	If a model set type is Object then look for instances of it in the code and then extract the object
 
-
-#UI element issues
-* If defined doesnt mean its actually used. Does it come from findviewbyid
-
-
 #Soot notes
 
-The sinksource parser is soot.jimple.infoflow.android.data.parsers.PermissionMethodParser.java
-The soot.jimple.infoflow.data.AccessPath.java class represents the taint
-
-soot.jimple.infoflow.data.Abstraction tracks the taint
-
-soot.jimple.infoflow.data.AccessPath is the taint
-If using custom source and sink manager can use custom SourceInfo to hold additional information about a source by extending soot.jimple.infoflow.source.SourceInfo
-
-
-Some UI elements are listed as Source/Sink (Bundle, Menu, View..) because it thinks its a callback, why?
-When callback is enabled and aggressivetw is not used we get many false positives. It reports more flows due to the extra sources/sinks added by the callbacks. I thnk this is for seeding so you can find flows in these callbacks
+* The sinksource parser is soot.jimple.infoflow.android.data.parsers.PermissionMethodParser.java
+* The soot.jimple.infoflow.data.AccessPath.java class represents the taint while soot.jimple.infoflow.data.Abstraction tracks the taint
+* If using custom source and sink manager can use custom SourceInfo to hold additional information about a source by extending soot.jimple.infoflow.source.SourceInfo
+* Some UI elements are listed as Source/Sink (Bundle, Menu, View..) because it thinks its a callback, so that it can keep propagation through these methods but dramaticially slows execution time. (reference?)
+* When callback is enabled and aggressivetw is not used we get many false positives. It reports more flows due to the extra sources/sinks added by the callbacks. I thnk this is for seeding so you can find flows in these callbacks
 
 
 
-#Troubleshooting
+#Troubleshooting notes
 
-when aggressivetaint enabled, fromJson is never called by soot.jimple.infoflow.problems.InfoflowProblem.computeWrapperTaints()
+* When aggressivetaint enabled, fromJson is never called by soot.jimple.infoflow.problems.InfoflowProblem.computeWrapperTaints()
 
 when aggressivetaint enabled computeTargetsInternal source == getZeroValue() causing a taint to propagaint but when not aggressive there is an extra for textview
 
@@ -122,6 +113,9 @@ taintedPath = $r4(com.github.wil3.android.flowtests.IP) *
 EasyTaintTwrapper isExclude supposely determines if you can propagate inside the callee
 
 
+* When doing injections, does this mess up all the line numbers ofr specific source/sinks? How to solve? Need to do the injections and then calculate the line numbers
+When code is injected it does not have tags and therefore line number = 0
+* The line numbers referr to original source and stay this way which is good
 
 #Tests
 Test-flow app will find a flow when not aggressive, no callbacks,  nothing added to easytaint
@@ -146,6 +140,10 @@ We also need the Model constructor to be a source which is how the list becomes 
 *get addall working - FIXED
 *optimize validation class - Done
 * write results to file - Done
-* return types of generic lists
-* Problem with agnostic results
-* remove false positives
+* return types of generic lists Done
+* Problem with agnostic results Done
+* remove false positives WIP
+
+
+#Optimizaiton
+take all UI sinks and check there paremeters to see if constant or local variable

@@ -57,7 +57,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 	 * @param context The application context
 	 * @param netToJsonFlowResults The results from the flow analsysi from the network to deserialize methods
 	 */
-	public DeserializeToUiPostProcessor(File resultsFile , File netToJsonResultsFile, SetupApplication context, InfoflowResults netToJsonFlowResults){
+	public DeserializeToUiPostProcessor(File resultsFile , File netToJsonResultsFile, SetupApplication context, InfoflowResults netToJsonFlowResults ){
 		super(context);
 		this.results = netToJsonFlowResults;
 		this.resultsFile = resultsFile;
@@ -67,7 +67,9 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 	
 	public void findHiddenData(){
 		
-		Set<String> foundSources = new HashSet<String>();
+
+		Set<String> foundSourcesConfidentHigh = new HashSet<String>();
+		Set<String> foundSourcesConfidentLow = new HashSet<String>();
 
 		Set<String> hiddenMethods = new HashSet<String>();
 		hiddenMethods.addAll(modelResults.getGetMethodSignatures());
@@ -85,27 +87,50 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 			//Just add all the signatures of the sources into a list
 			for (ResultSinkInfo foundSink : results.getResults().keySet()) {
 				
+				Set<String> getMethodsUsedForSink = new HashSet<String>();
+				boolean hasFromJson = false;
 				for (ResultSourceInfo foundSource : results.getResults().get(foundSink)) {
 					
 					//Make sure its form original source
 					if (isOriginalSource(foundSource.getSource().toString())){
+						
+						
+						//If fromJson do nothing everything is great
+						//otherwise
+						if (foundSource.getSource().toString().contains("fromJson")){
+							hasFromJson = true;
+						}
+						
 						//First try seeign if the model is included in the path and just walk backwards
-						Set<String>  path = getTaintedModelMethodFromFlow(foundSource);
+						Set<String>  getMethodsUsed = getTaintedModelMethodFromFlow(foundSource);
 						
 						//Otherwise as a last resort look directly at the 
-						if (path.isEmpty()){
+						if (getMethodsUsed.isEmpty()){
 							
 						}
-						foundSources.addAll(path);
+						//foundSources.addAll(getMethodsUsed);
+						getMethodsUsedForSink.addAll(getMethodsUsed);
 					}
+				}
+				
+				//Is a source of fromJson? If so then everything is cool
+				//we will add all the getMethods found here
+				if (hasFromJson){
+					foundSourcesConfidentHigh.addAll(getMethodsUsedForSink);
+				} else {
+					//Not really confident
+					foundSourcesConfidentLow.addAll(getMethodsUsedForSink);
 				}
 			}
 			
 			//From all of the method signatures, remove the ones we found
 			//whats left is hidden
-			for (String f : foundSources ){
-				logger.info("Method used! {}", f);
+			for (String f : foundSourcesConfidentHigh ){
+				logger.info("(HIGH) Method used! {}", f);
 				hiddenMethods.remove(f);
+			}
+			for (String f : foundSourcesConfidentLow ){
+				logger.info("(Low) Method used! {}", f);
 			}
 			
 		}
@@ -123,12 +148,18 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 		results.setApkName(new File(context.getApkFileLocation()).getName());
 		results.setCallGraphEdges(CallGraphAndroidPatcher.CALLGRAPH_EDGES);
 		results.setGetMethodsInApp(getMethodsInApp);
-		results.setHiddenGetMethodSignatures(hiddenMethods);
-		results.setUsedGetMethodSignatures(foundSources);
+		//results.setHiddenGetMethodSignatures(hiddenMethods);
+		results.setUsedConfidenceHigh(foundSourcesConfidentHigh);
+		results.setUsedConfidenceLow(foundSourcesConfidentLow);
 		JsonUtils.writeResults(resultsFile, results);		
 		
 	}
 	
+	private Set<String> notUsed ( Map<String, Integer> methodsUsed){
+		Set<String> notUsed = new HashSet<String>();
+		
+		return notUsed;
+	}
 	private void writeResults(){
 		Results results = new Results();
 		
@@ -201,17 +232,8 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 		Set<String> tainted = new HashSet<String>();
 		Collections.reverse(source.getPath());
 		for (Stmt stmt : source.getPath()){
-			String signature = null;
-			if (stmt instanceof AssignStmt){
-				AssignStmt assignStmt = (AssignStmt) stmt;
-				if (assignStmt.containsInvokeExpr()){
-					signature = assignStmt.getInvokeExpr().getMethod().getSignature();
-				}
-			} else if (stmt instanceof InvokeStmt){
-				signature = ((InvokeStmt)stmt).getInvokeExpr().getMethod().getSignature();
-			} else {
-				
-			}
+			
+			String signature = getSignatuteFromStmt(stmt, false);
 			
 			if (signature != null){
 				if (modelResults.getGetMethodSignatures().contains(signature)){
@@ -221,6 +243,32 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 			}
 		}
 		return tainted;
+	}
+	
+	private String getSignatuteFromStmt(Stmt stmt, boolean useSub){
+
+		String signature = null;
+		if (stmt instanceof AssignStmt){
+			AssignStmt assignStmt = (AssignStmt) stmt;
+			if (assignStmt.containsInvokeExpr()){
+				if (useSub){
+					signature = assignStmt.getInvokeExpr().getMethod().getSubSignature();
+				} else {
+					signature = assignStmt.getInvokeExpr().getMethod().getSignature();
+				}
+			}
+		} else if (stmt instanceof InvokeStmt){
+			if (useSub){
+				signature = ((InvokeStmt)stmt).getInvokeExpr().getMethod().getSubSignature();
+			} else {
+				signature = ((InvokeStmt)stmt).getInvokeExpr().getMethod().getSignature();
+			}
+		} else {
+			
+		}
+		
+		
+		return signature;
 	}
 	/**
 	 * Because of the way the flows are reported there could be errors from parsing so dont do that, 

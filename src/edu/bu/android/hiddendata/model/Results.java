@@ -7,8 +7,24 @@ public class Results {
 	private String apkName;
 	private int callGraphEdges;
 	//private boolean hasObfuscation;
-	private Collection<String> usedGetMethodSignatures;
-	private Collection<String> hiddenGetMethodSignatures;
+	
+	/**
+	 * There is a fromJson on the path, we are pretty confident this came directly from the network response
+	 */
+	private Collection<String> usedConfidenceHigh;
+	
+	/**
+	 * A model get method is used in a UI element but we arent sure where 
+	 * the get method originated. At tleast this can idenfity which potential parts of the 
+	 * model are possibily displayed to user
+	 */
+	private Collection<String> usedConfidenceLow;
+
+	//private Collection<String> notUsedInApp;
+	//private Collection<String> hidden;
+	//private Collection<String> extractedModels;
+
+	//Given the used ones, to get hidden for each just need to exclude
 	private Map<String, Integer> getMethodsInApp;
 	
 	public String getApkName() {
@@ -25,19 +41,21 @@ public class Results {
 		this.hasObfuscation = hasObfuscation;
 	}
 	*/
-	public Collection<String> getUsedGetMethodSignatures() {
-		return usedGetMethodSignatures;
+	public Collection<String> getUsedConfidenceHigh() {
+		return usedConfidenceHigh;
 	}
-	public void setUsedGetMethodSignatures(Collection<String> getMethodSignatures) {
-		this.usedGetMethodSignatures = getMethodSignatures;
+	public void setUsedConfidenceHigh(Collection<String> usedConfidenceHigh) {
+		this.usedConfidenceHigh = usedConfidenceHigh;
 	}
+	/*
 	public Collection<String> getHiddenGetMethodSignatures() {
-		return hiddenGetMethodSignatures;
+		return hidden;
 	}
 	public void setHiddenGetMethodSignatures(
 			Collection<String> hiddenGetMethodSignatures) {
-		this.hiddenGetMethodSignatures = hiddenGetMethodSignatures;
+		this.hidden = hiddenGetMethodSignatures;
 	}
+	*/
 	public int getCallGraphEdges() {
 		return callGraphEdges;
 	}
@@ -50,5 +68,18 @@ public class Results {
 	public void setGetMethodsInApp(Map<String, Integer> getMethodsInApp) {
 		this.getMethodsInApp = getMethodsInApp;
 	}
-
+	public Collection<String> getUsedConfidenceLow() {
+		return usedConfidenceLow;
+	}
+	public void setUsedConfidenceLow(Collection<String> usedConfidenceLow) {
+		this.usedConfidenceLow = usedConfidenceLow;
+	}
+	/*
+	public Collection<String> getNotUsedInApp() {
+		return notUsedInApp;
+	}
+	public void setNotUsedInApp(Collection<String> notUsedInApp) {
+		this.notUsedInApp = notUsedInApp;
+	}
+*/
 }
