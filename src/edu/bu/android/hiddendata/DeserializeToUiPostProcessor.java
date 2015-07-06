@@ -29,6 +29,7 @@ import soot.Scene;
 import soot.SootClass;
 import soot.SootMethod;
 import soot.Unit;
+import soot.Value;
 import soot.ValueBox;
 import soot.jimple.AssignStmt;
 import soot.jimple.InvokeExpr;
@@ -36,9 +37,13 @@ import soot.jimple.InvokeStmt;
 import soot.jimple.Stmt;
 import soot.jimple.infoflow.android.SetupApplication;
 import soot.jimple.infoflow.android.source.data.SourceSinkDefinition;
+import soot.jimple.infoflow.data.AccessPath;
 import soot.jimple.infoflow.results.InfoflowResults;
 import soot.jimple.infoflow.results.ResultSinkInfo;
 import soot.jimple.infoflow.results.ResultSourceInfo;
+import soot.jimple.infoflow.source.SourceInfo;
+import soot.jimple.internal.JAssignStmt;
+import soot.jimple.internal.JInstanceFieldRef;
 import soot.util.Chain;
 
 /**
@@ -256,6 +261,12 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 				} else {
 					signature = assignStmt.getInvokeExpr().getMethod().getSignature();
 				}
+			} else {
+				Value value = assignStmt.getRightOp();
+				if (value instanceof JInstanceFieldRef){
+					JInstanceFieldRef ref = (JInstanceFieldRef) value;
+					signature = ref.getFieldRef().toString();
+				}
 			}
 		} else if (stmt instanceof InvokeStmt){
 			if (useSub){
@@ -263,9 +274,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 			} else {
 				signature = ((InvokeStmt)stmt).getInvokeExpr().getMethod().getSignature();
 			}
-		} else {
-			
-		}
+		} 
 		
 		
 		return signature;

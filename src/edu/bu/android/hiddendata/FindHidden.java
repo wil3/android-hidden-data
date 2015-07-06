@@ -203,8 +203,9 @@ public class FindHidden {
 			File easyTaintFileDeserializeToUI  = new File(apkResult1Dir, easyTaintFileName );
 			File jsonToUIresultsFile = new File(apkResult1Dir, apkFileName + FindHidden.MODEL_TO_UI_CONFIG_SUFFIX );
 
+			//TODO we should check existance of flag files here
 			final long beforeRun = System.nanoTime();
-
+			boolean shouldProcessLists = true;
 			switch (mode){
 				case NETWORK_TO_DESERIALIZE: {
 					
@@ -230,8 +231,10 @@ public class FindHidden {
 					
 					//Create source sink for next pass as well
 					NetworkToDeserializePostProcessor pass1 = new NetworkToDeserializePostProcessor(results.context,  sourceSinkFileDeserializeToUI, sourceSinkFileList, easyTaintFileDeserializeToUI,  results.infoFlowResults);
-					pass1.process();
-					
+					shouldProcessLists = pass1.process();
+					if (!shouldProcessLists){
+						listFlagFile.createNewFile(); //if we crash here dont restart at list
+					}
 
 					System.gc();
 
@@ -251,16 +254,20 @@ public class FindHidden {
 					logger.info("Pass 2: Lists to List.add");
 					logger.info("=========================================");
 
-					//Note: I dont believe this needs agnositic should be false because
-					//we only need to location the source here for the injection
-					sourcesAndSinksFilePath = sourceSinkFileList.getAbsolutePath();
-					//easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
-
-					results = runAnalysis(fullFilePath, args[1]);
-					ListFlowsPostProcessor la = new ListFlowsPostProcessor(results.context, results.infoFlowResults, jsonToUIresultsFile, sourceSinkFileDeserializeToUI);
-					la.process();
-					System.gc();
-					
+					if (shouldProcessLists){
+						
+						//Note: I dont believe this needs agnositic should be false because
+						//we only need to location the source here for the injection
+						sourcesAndSinksFilePath = sourceSinkFileList.getAbsolutePath();
+						//easyTaintFilePath = easyTaintFileDeserializeToUI.getAbsolutePath();
+	
+						results = runAnalysis(fullFilePath, args[1]);
+						ListFlowsPostProcessor la = new ListFlowsPostProcessor(results.context, results.infoFlowResults, jsonToUIresultsFile, sourceSinkFileDeserializeToUI);
+						la.process();
+						System.gc();
+					} else {
+						logger.warn("No source and sinks found");
+					}
 					listFlagFile.createNewFile();
 				}
 				case DESERIALIZE_TO_UI: {

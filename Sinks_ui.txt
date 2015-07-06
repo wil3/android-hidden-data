@@ -24,7 +24,7 @@
 <android.app.AlertDialog: void setMessage(java.lang.CharSequence)> -> _SINK_
 <android.app.AlertDialog: void setButton(int,java.lang.CharSequence,android.os.Message)> -> _SINK_
 
-$Alert Builder
+%Alert Builder
 <android.app.AlertDialog$Builder: setItems(java.lang.CharSequence[],android.content.DialogInterface.OnClickListener)> -> _SINK_
 <android.app.AlertDialog$Builder: setNegativeButton(java.lang.CharSequence,android.content.DialogInterface.OnClickListener)> -> _SINK_
 <android.app.AlertDialog$Builder: setNeutralButton(java.lang.CharSequence,android.content.DialogInterface.OnClickListener)> -> _SINK_

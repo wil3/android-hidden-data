@@ -39,6 +39,7 @@ import soot.PatchingChain;
 import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
+import soot.SootField;
 import soot.SootMethod;
 import soot.SootMethodRef;
 import soot.Type;
@@ -116,9 +117,10 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 	/**
 	 * Process the results of the flow to extract the models from the json deserilize method
 	 */
-	public void process(){
+	public boolean process(){
+		boolean processLists = false;
 		if (results == null){
-			return;
+			return processLists;
 		}
 		
 		//Track all the objects that are added to lists
@@ -198,16 +200,13 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 					modelMethodSignatures.add(method.getSignature());
 
 				}
-				/*
-				Type retType = method.getReturnType();
-				//A list is a ref type as well
-				if (retType instanceof RefType){
-					RefType refType = (RefType) retType;
-					String retClassName = refType.getClassName();
-					if (!retClassName.startsWith("java.")){
-					}
-				}
-				*/
+				
+			}
+
+			@Override
+			public void onFieldExtracdted(SootClass sootClass,
+					SootField sootField) {
+				modelMethodSignatures.add(sootField.getSignature());
 			}
 		});
 		
@@ -249,6 +248,8 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		//Now create a new sink source file for the next pass
 		ConfigUtils.createSinkSourceFile("./Sinks_ui.txt", sourcesAndSinksFile, sourceSignatures, sinkSignatures);
 	
+		
+		return !listConstructorSources.isEmpty() && !listAddModelSignatures.isEmpty();
 	}
 	
 	

@@ -18,6 +18,8 @@
 %%%%%%%%%%%%%%%%%%
 <java.io.InputStreamReader: void <init>(java.io.InputStream)>
 <java.io.BufferedReader: void <init>(java.io.Reader)>
+<java.text.NumberFormat: java.lang.String format(double)>
+<java.text.NumberFormat: java.lang.String format(long)>
 
 %%%%%%%%%%%%%%%%%%%%%
 

@@ -16,6 +16,7 @@ import edu.bu.android.hiddendata.parser.SignatureParser;
 import soot.RefType;
 import soot.Scene;
 import soot.SootClass;
+import soot.SootField;
 import soot.SootMethod;
 import soot.Type;
 import soot.VoidType;
@@ -32,6 +33,7 @@ public class ModelExtraction {
 
 	public interface OnExtractionHandler {
 		public void onMethodExtracted(SootClass sootClass, SootMethod method);
+		public void onFieldExtracdted(SootClass sootClass, SootField sootField);
 	}
 	
 	private final Logger logger = LoggerFactory.getLogger(getClass());
@@ -70,7 +72,7 @@ public class ModelExtraction {
 	/**
 	 * Collect all the class reference types of methods recursively
 	 * @param sootClass
-	 * @param classes
+	 * @param classes Keep track of all the classes we've visited so we don't get into a recursive loop
 	 * @param superTypeSignature
 	 */
 	private void getMethodReturnClassNames(SootClass sootClass, Set<String> classes, ClassTypeSignature superTypeSignature){
@@ -98,6 +100,22 @@ public class ModelExtraction {
 
 			}
 			
+			List<TypeAndTag> typeAndTags = new ArrayList<TypeAndTag>();
+			
+			//Collect all the fields if public
+			for( SootField field : sc.getFields()){
+				if (field.isPublic() && !field.isStatic() && !field.isFinal()){
+					if (handler != null){
+						handler.onFieldExtracdted(sc, field);
+					}
+					TypeAndTag typeAndTag = new TypeAndTag();
+					typeAndTag.tags = field.getTags();
+					typeAndTag.type = field.getType();
+					typeAndTags.add(typeAndTag);
+					
+				}
+			}
+			
 			
 			//And for all the methods
 			for (SootMethod method : sc.getMethods()){
@@ -105,72 +123,51 @@ public class ModelExtraction {
 				if (handler != null){
 					handler.onMethodExtracted(sc, method);
 				}
+				TypeAndTag typeAndTag = new TypeAndTag();
+				typeAndTag.type = method.getReturnType();
+				typeAndTag.tags = method.getTags();
+				typeAndTags.add(typeAndTag);
+			}
+			
+			for (TypeAndTag typeAndTag : typeAndTags){
 				
-				Type retType = method.getReturnType();
-				
+				Type retType = typeAndTag.type;
+				List<Tag> tags = typeAndTag.tags;
 				//A list is a ref type as well
 				if (retType instanceof RefType){
 					RefType refType = (RefType) retType;
 					String retClassName = refType.getClassName();
-					
-					
-					String methodSignatureTag = PostProcessor.getSignatureFromTag( method.getTags());
-					if (methodSignatureTag != null){
-						SignatureParser sp = SignatureParser.make();
-						MethodTypeSignature methodTypeSignature = sp.parseMethodSig(methodSignatureTag);
-						FormalTypeParameter [] formalTypeParameters = methodTypeSignature.getFormalTypeParameters();
-						ReturnType returnType = methodTypeSignature.getReturnType();
-						if (returnType instanceof TypeVariableSignature){
-							String identifier = ((TypeVariableSignature) returnType).getIdentifier();
-							if (childSuperTypeSignature != null){
-							}
-						}
-						logger.trace("");
-					}
-					//Check if there is a generic
-					/*
-					for (Tag tag : method.getTags()){
-						if (tag instanceof SignatureTag){
-							String name = ((SignatureTag) tag).getSignature();
-							String byteCodeClassName = parseClassNameFromAnnotation(name);
-							if (byteCodeClassName == null) { continue;}
-							String className = FlowAnalyzer.convertBytecodeToJavaClassName(byteCodeClassName);
-							getMethodReturnClassNames(Scene.v().getSootClass(className), classes);
-							continue;
-						}
-					}
-					*/
-					
-					//TODO fill this in
-					//refType.getSootClass().getI
+										
 					
 					//The return type is a list so get the element types
 					if (hasInterface(refType.getSootClass(), "java.util.List") || 
 							hasInterface(refType.getSootClass(), "java.util.Collection") ) {
-						String signature = PostProcessor.getSignatureFromTag(method.getTags());
-						logger.trace("");
+						String signature = PostProcessor.getSignatureFromTag(tags);
 						List<String> genericClassNames = getClassNamesFromReturnSignature(signature);
 						//Size should be 1
 						if (genericClassNames.size() == 1){
-							getMethodReturnClassNames(Scene.v().getSootClass(genericClassNames.get(0)), classes, superTypeSignature);
+							String className = genericClassNames.get(0);
+							if (!classes.contains(className)){
+								getMethodReturnClassNames(Scene.v().getSootClass(className), classes, superTypeSignature);
+							}
 						}
 
 					} else if (hasInterface(refType.getSootClass(), "java.util.Map")) {
-						String signature = PostProcessor.getSignatureFromTag(method.getTags());
-						logger.trace("");
+						String signature = PostProcessor.getSignatureFromTag(tags);
 						//Size may not be 2 because we only return non framework types
 						List<String> genericClassNames = getClassNamesFromReturnSignature(signature);
 						for (String genericClassName : genericClassNames){
-							getMethodReturnClassNames(Scene.v().getSootClass(genericClassName), classes, superTypeSignature);
+							if (!classes.contains(genericClassName)){
+								getMethodReturnClassNames(Scene.v().getSootClass(genericClassName), classes, superTypeSignature);
+							}
 						}
 						
 					} else if (retClassName.equals("java.lang.Object")){
 					//TODO this is where the generic type should be checked from the type parameter in class
 						
 					} else {
-						
-						
 						if (!classes.contains(retClassName) && !PostProcessor.isFrameworkClass(retClassName)){
+							
 							if (currentSuperTypeSignature != null){
 								getMethodReturnClassNames(Scene.v().getSootClass(retClassName), classes, currentSuperTypeSignature);
 							} else {
@@ -179,11 +176,14 @@ public class ModelExtraction {
 						}
 					}
 				}	
+				
 			}
 			childSuperTypeSignature = currentSuperTypeSignature;
 		}
 	}
 	
+	
+
 	/**
 	 * 
 	 * @param path The super class path. Path because of nesting classes.
@@ -349,6 +349,11 @@ public class ModelExtraction {
 	@SuppressWarnings("restriction")
 	public boolean isReturnATypeParameter(String sootSignatureTag){
 		if (sootSignatureTag != null){
+			
+			//To force processes fields make it look like a method signature
+			if (!sootSignatureTag.startsWith("()")){
+				sootSignatureTag = "()" + sootSignatureTag;
+			}
 			SignatureParser sp = SignatureParser.make();
 			MethodTypeSignature methodTypeSignature = sp.parseMethodSig(sootSignatureTag);
 			ReturnType returnType = methodTypeSignature.getReturnType();
@@ -372,6 +377,10 @@ public class ModelExtraction {
 	 */
 	@SuppressWarnings("restriction")
 	public List<String> getClassNamesFromReturnSignature(String listSignature){
+		//To force processes fields make it look like a method signature
+		if (!listSignature.startsWith("()")){
+			listSignature = "()" + listSignature;
+		}
 		SignatureParser sp = SignatureParser.make();
 		MethodTypeSignature methodTypeSignature = sp.parseMethodSig(listSignature);
 		ReturnType returnType = methodTypeSignature.getReturnType();
@@ -383,6 +392,12 @@ public class ModelExtraction {
 		}
 		//PostProcessor.convertBytecodeToJavaClassName(classPath)
 		return new ArrayList<String>();
+	}
+	
+	
+	class TypeAndTag {
+		public Type type;
+		public List<Tag> tags;
 	}
 
 }
