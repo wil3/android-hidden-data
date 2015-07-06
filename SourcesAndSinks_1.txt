@@ -5,13 +5,13 @@
 <com.google.gson.Gson: java.lang.Object fromJson(java.lang.String, java.lang.Class)> -> _SINK_
 
 %Flexjson
-<flexjson: java.lang.Object deserialize(java.io.Reader, java.lang.Class)> -> _SINK_
-<flexjson: java.lang.Object deserialize(java.io.Reader, java.lang.String, java.lang.Class)> -> _SINK_
-<flexjson: java.lang.Object deserialize(java.lang.String, java.lang.Class)> -> _SINK_
-<flexjson: java.lang.Object deserialize(java.lang.String, java.lang.String, java.lang.Class)> -> _SINK_
+%<flexjson: java.lang.Object deserialize(java.io.Reader, java.lang.Class)> -> _SINK_
+%<flexjson: java.lang.Object deserialize(java.io.Reader, java.lang.String, java.lang.Class)> -> _SINK_
+%<flexjson: java.lang.Object deserialize(java.lang.String, java.lang.Class)> -> _SINK_
+%<flexjson: java.lang.Object deserialize(java.lang.String, java.lang.String, java.lang.Class)> -> _SINK_
 
-<flexjson: flexjson.JSONDeserializer use(java.lang.Class, flexjson.ObjectFactory)> -> _SINK_
-<flexjson: flexjson.JSONDeserializer use(java.lang.String, java.lang.Class)> -> _SINK_
+%<flexjson: flexjson.JSONDeserializer use(java.lang.Class, flexjson.ObjectFactory)> -> _SINK_
+%<flexjson: flexjson.JSONDeserializer use(java.lang.String, java.lang.Class)> -> _SINK_
 
 % Http libraries
 
@@ -28,9 +28,3 @@
 <com.squareup.okhttp.ResponseBody: java.lang.String string()> -> _SOURCE_
 <com.squareup.okhttp.Call: com.squareup.okhttp.Response execute()> -> _SOURCE_ 
 
-%This is to solve problem with backward propagation with lists
-%<java.util.ArrayList: void <init>()> -> _SOURCE_
-
-%I think the List sink is the one that matters
-%<java.util.List: boolean add(java.lang.Object)> -> _SINK_
-%<java.util.List: boolean addAll(java.util.Collection)> -> _SINK_

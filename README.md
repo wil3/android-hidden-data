@@ -144,6 +144,30 @@ We also need the Model constructor to be a source which is how the list becomes 
 * Problem with agnostic results Done
 * remove false positives WIP
 
+#Problems after batch run
+* Inner classes (Look at 889804627cc50850164c2afdf02a6c7eb96733ed.apk)
+* Arrays
+
 
 #Optimizaiton
 take all UI sinks and check there paremeters to see if constant or local variable
+
+
+#Helpful linux commands
+
+Take the obfuscation results that contain log file of the sources and convert to a file that can be
+read to analyze the apps
+
+`
+ls -1 | sed s/\.log/\.apk/ | sed 's/^/\/home\/wfkoch\/apks\/large\//' > ../fromjson_apps.txt
+`
+
+Get the number of results
+`
+find results -iname "*results.json" | wc -l
+`
+
+Creating a file in multiple directories
+`
+find . -type d -exec touch {}/hiya \;
+`

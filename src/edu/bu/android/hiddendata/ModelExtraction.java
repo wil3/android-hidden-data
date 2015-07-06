@@ -97,6 +97,8 @@ public class ModelExtraction {
 				logger.debug("");
 
 			}
+			
+			
 			//And for all the methods
 			for (SootMethod method : sc.getMethods()){
 				

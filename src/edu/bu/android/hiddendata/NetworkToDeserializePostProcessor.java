@@ -94,6 +94,7 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 
 	private File sourcesAndSinksListFile;
 	
+	
 	public NetworkToDeserializePostProcessor(SetupApplication context, File sourcesAndSinksFile, File sourceAndSinkListFile, File easyTaintFile,  InfoflowResults results){
 		super(context);
 		this.apkFileName = new File(context.getApkFileLocation()).getName();
@@ -173,35 +174,6 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		Set<String> sinkSignatures = new HashSet<String>();
 		
 		
-		//Now finish up
-		//Look at all the objects extracted from List.add(java.lang.Object) and Model Objects
-		//we want to use them in our next pass if they use the model objects
-		
-		//We are going to try to not do this and instead force taint where there is a list constructor
-		
-		/*
-		Iterator<String> it = addMethodParameterClassNames.keySet().iterator();
-		while(it.hasNext()){
-			String addMethodParameterClassName = it.next();
-			if (modelClassNames.contains(addMethodParameterClassName)){
-				ListFlow resultInfo = addMethodParameterClassNames.get(addMethodParameterClassName);
-				//it.remove();
-				//sourceSignatures.add(makeSignature(resultInfo.source));
-				//sinkSignatures.add(makeSignature(resultInfo.sink));
-				
-				
-				//Right after a List constructor
-				//Inject list.add(new Model())
-				//TODO need to add line number to differentiat between mutlple targets
-				InjectionPoint inject = new InjectionPoint();
-				inject.setDeclaredClass(resultInfo.source.getDeclaringClass().getName());
-				inject.setTargetInstruction(resultInfo.source.getStmt().toString());
-				inject.setMethodSignature(resultInfo.source.getMethod().getSubSignature());
-				inject.setClassNameToInject(addMethodParameterClassName);
-				injections.add(inject);
-			}
-		}
-		*/
 		
 		DeserializeToUIConfig result = new DeserializeToUIConfig();
 		List<Model> models = new ArrayList<Model>();
@@ -262,7 +234,7 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		
 		Set<String> listConstructorSources = new HashSet<String>();
 		Set<String> listAddModelSignatures = findAddMethods(listConstructorSources, allModels);
-		createSinkSourceFile("SourcesAndSinks_2.txt", sourcesAndSinksListFile, listConstructorSources, listAddModelSignatures);
+		ConfigUtils.createSinkSourceFile("SourcesAndSinks_2.txt", sourcesAndSinksListFile, listConstructorSources, listAddModelSignatures);
 		
 		//Write out results to be used for next pass
 		result.setGetMethodSignatures(modelMethodSignatures);
@@ -271,11 +243,11 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		//result.setInjections(injections); //Done in ListAnalyzer
 		JsonUtils.writeResults(resultsFile, result);
 		
-		createEasyTaintWrapperFile(allModels);
+		ConfigUtils.createEasyTaintWrapperFile(easyTaintWrapperFile,allModels);
 		
 		//TODO Need to have the model constructuros specific to the injection
 		//Now create a new sink source file for the next pass
-		createSinkSourceFile("./Sinks_ui.txt", sourcesAndSinksFile, sourceSignatures, sinkSignatures);
+		ConfigUtils.createSinkSourceFile("./Sinks_ui.txt", sourcesAndSinksFile, sourceSignatures, sinkSignatures);
 	
 	}
 	
@@ -611,80 +583,7 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		return null;
 	}
 	
-	/**
-	 * Create for the second pass so we can start independently
-	 * 
-	 * @param sources
-	 * @param sinks
-	 */
-	private void createSinkSourceFile(String base, File file,  Set<String> sources, Set<String> sinks){
-		
-		
-		PrintWriter writer = null;
-		try {
-			
-			writer = new PrintWriter(file, "UTF-8");
-			for (String source : sources){
-				String sourceEntry = source + " -> _SOURCE_";
-				writer.println(sourceEntry);
-			}
-			writer.println("");
-			for (String sink : sinks){
-				String sinkEntry = sink + " -> _SINK_";
-				writer.println(sinkEntry);
-			}
-			
-			writer.println("");
-			writer.println("");
-			
-			//Load all the known UI sinks
-			Path path = FileSystems.getDefault().getPath(base);
-			List<String> UISinks = Files.readAllLines(path, Charset.defaultCharset());
-
-			//Now add all the sinks
-			for (String sink : UISinks){
-				writer.println(sink);
-			}
-			
-		} catch (IOException e){
-			logger.error(e.getMessage());
-		} finally {
-			if (writer != null){
-				writer.close();
-			}
-		}
-	}
 	
-	private void createEasyTaintWrapperFile(Set<String> models){
-		//Load all the known UI sinks
-				
-		PrintWriter writer = null;
-		try {
-			
-			writer = new PrintWriter(easyTaintWrapperFile, "UTF-8");
-			
-			//Include the models
-			for (String model : models){
-				writer.println("^" + model);
-			}
-			
-			
-			Path path = FileSystems.getDefault().getPath("./EasyTaintWrapperSource-default.txt");
-			List<String> easyTaints = Files.readAllLines(path, Charset.defaultCharset());
-
-			//Now add all the defaults
-			for (String taints : easyTaints){
-				writer.println(taints);
-			}
-			
-		} catch (IOException e){
-			logger.error(e.getMessage());
-		} finally {
-			if (writer != null){
-				writer.close();
-			}
-		}
-	}
 	
 	/**
 	 * Load the parameter mappings

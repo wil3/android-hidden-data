@@ -223,6 +223,8 @@ public class FindHidden {
 					
 					if (results.infoFlowResults == null || results.infoFlowResults.isEmpty()){
 						logger.error("Could not find any flows from Network to Deserialize, cannot continue");
+						//Create this so we skip it if run again
+						modelToUIFlagFile.createNewFile();
 						return;
 					}
 					
@@ -321,6 +323,11 @@ public class FindHidden {
 			//The jvm arguments, same as we started
 			cmd.addAll(jvmArgs);
 			
+			//If the JVM crashes a hs_error_pid.log file will be created, place this file in the 
+			//directory of the analysis running
+			File jvmLogFile = new File(apkResultDir,"java_error%p.log");
+			cmd.add("-XX:ErrorFile=" + jvmLogFile.getAbsolutePath());
+			
 			cmd.add("-cp");
 			cmd.add(classpath);
 			cmd.add("edu.bu.android.hiddendata.FindHidden");
@@ -374,7 +381,8 @@ public class FindHidden {
 				//pb.inheritIO();
 				
 				//All of the proper logs are redirected to error
-				File f= new File(apkResultDir, new File(fileName).getName() + ".log");
+				
+				File f= new File(apkResultDir, new File(fileName).getName() + "-" + System.currentTimeMillis() + ".log");
 				//pb.redirectOutput(f);
 				pb.redirectError(f);//new File("err_" + new File(fileName).getName() + ".txt"));
 				Process proc = pb.start();
