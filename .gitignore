@@ -3,7 +3,6 @@ sootOutput/
 target/
 .classpath
 .settings
-.project
 target/
 results-1/
 *~
