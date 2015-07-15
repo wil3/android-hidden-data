@@ -54,13 +54,16 @@ public class ModelExtraction {
 	 * @return
 	 */
 	public Set<String> getModels(String modelClassName){
-		
+		Set<String> classes = new HashSet<String>();
+
+		if (modelClassName == null){
+			return classes;
+		}
 		SootClass sootClass = Scene.v().getSootClass(modelClassName);
 			
 		//need to look at all the super methods too because although the child class can access them all
 		//they are not represented in Java this way
 		
-		Set<String> classes = new HashSet<String>();
 		getMethodReturnClassNames(sootClass, classes, null);
 		
 		for (String c : classes){
@@ -81,6 +84,9 @@ public class ModelExtraction {
 
 		//For all the classes
 		for (SootClass sc : getSuperSootClasses(sootClass, true)){
+			if (PostProcessor.isFrameworkClass(sc.getName())){
+				continue;
+			}
 			classes.add(sc.getName());
 			
 			if (sc.getName().contains("AnnotationTest")){
@@ -351,7 +357,7 @@ public class ModelExtraction {
 		if (sootSignatureTag != null){
 			
 			//To force processes fields make it look like a method signature
-			if (!sootSignatureTag.startsWith("()")){
+			if (!sootSignatureTag.contains("(") && !sootSignatureTag.contains(")")){
 				sootSignatureTag = "()" + sootSignatureTag;
 			}
 			SignatureParser sp = SignatureParser.make();

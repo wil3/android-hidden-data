@@ -10,7 +10,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.stream.JsonReader;
 
-public class JsonUtils {
+public class JsonUtils<T> {
 
 
 	/**
@@ -28,6 +28,18 @@ public class JsonUtils {
 			e.printStackTrace();
 		}
 		return map;
+	}
+	public T load(File file, Class c ){
+		T obj = null;
+		try {
+			JsonReader reader = new JsonReader(new FileReader(file));
+			Gson gson = new Gson();
+			obj = gson.fromJson(reader, c);
+			
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		}
+		return obj;
 	}
 	public static void writeResults(File resultsFile, Object results){
 		Gson gson = new GsonBuilder().setPrettyPrinting().create();

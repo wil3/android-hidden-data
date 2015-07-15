@@ -9,6 +9,7 @@ import java.io.FilenameFilter;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -49,6 +50,9 @@ public class FindHidden {
 	private static int timeout = -1;
 	private static int sysTimeout = -1;
 	
+	public static final String JAVA_ERROR_PREFIX = "java_error";
+	public static final String FLAG_MODEL = "net2model.flag";
+	public static final String FLAG_DONE = "model2ui.flag";
 	protected static final String RESULT_DIRECTORY = "results";
 	protected static final String SOURCESINK_SUFFEX = "-model2ui_sources_sinks.txt";
 	protected static final String EASY_TAINT_WRAPPER_FILE_PREFIX = "-easytaintwrapper.txt";
@@ -56,6 +60,8 @@ public class FindHidden {
 	protected static final String LIST_SUFFIX = "-list_sources_sinks.txt";
 	protected static final String RESULTS_SUFFIX = "-results.json";
 
+	public static String EXEC_ID;
+	private static boolean forceRun = false;
 	private static String resultsDirectory = RESULT_DIRECTORY;
 	private static String injectionsFilePath = null;
 	private static String sourcesAndSinksFilePath = "SourcesAndSinks.txt";
@@ -89,6 +95,8 @@ public class FindHidden {
 	 * args[1] = path to android-dir (path/android-platforms/)
 	 */
 	public static void main(final String[] args) throws IOException, InterruptedException {
+		EXEC_ID = System.currentTimeMillis() + "";
+		
 		if (args.length < 2) {
 			printUsage();	
 			return;
@@ -144,12 +152,13 @@ public class FindHidden {
 				return;
 			}
 		}
-
+		int apkCount = 0;
 		for (final String fullFilePath : apkFiles) {
 			//final String fullFilePath;
-			
-	
-			System.out.println("Analyzing file " + fullFilePath + "...");
+			apkCount++;
+			double percentDone = (apkCount * 1.0) / (apkFiles.size() * 1.0) * 100;
+			String sPercentDone = String.format("%.2f",percentDone); //88%
+			logger.info(sPercentDone + "% (" + apkCount + " of " + apkFiles.size() + ") Analyzing file " + fullFilePath + "...");
 				
 			
 
@@ -165,40 +174,52 @@ public class FindHidden {
 				apkResult1Dir.mkdirs();
 			} 
 			
-			//If we have a sys timeout then we need to spawn 
-			//a new processes and it will restart this for a single app
-			if (sysTimeout > 0) {
-				logger.info("Path: " + fullFilePath + " arg1: " + args[1]);
-				runAnalysisSysTimeout(apkResult1Dir, fullFilePath, args[1]);
-				continue;
-			}
-			
-			
-			File netToModelFlagFile = new File(apkResult1Dir, "net2model.flag");
+			File netToModelFlagFile = new File(apkResult1Dir, FLAG_MODEL );
 			File listFlagFile = new File(apkResult1Dir, "list.flag");
-			File modelToUIFlagFile = new File(apkResult1Dir, "model2ui.flag");
+			File modelToUIFlagFile = new File(apkResult1Dir, FLAG_DONE);
+			
+			logger.info("Path: " + fullFilePath + " arg1: " + args[1]);
+
+			
 			//File pass3FlagFile = new File(apkResult1Dir, ".pass3");
 			
 			mode = Mode.NETWORK_TO_DESERIALIZE;
 
+			//Already run? Skip
+			if (modelToUIFlagFile.exists()){
+				logger.warn("Already ran analysis, skipping");
+				continue;
+			}
+			
 			//Whats the current mode?
 			if (netToModelFlagFile.exists()){
 				mode = Mode.LIST_ANALYSIS;
 				if (listFlagFile.exists()){
 					mode = Mode.DESERIALIZE_TO_UI;
-					if (modelToUIFlagFile.exists()){
-						logger.warn("Already ran analysis");
-						continue;
-					}
 				}
 			}
 			
+			//check for a previous out of memory  java_error file, skip if present unless we are forcing it to execute
+			if (hasJavaError(apkResult1Dir) && !forceRun){
+				logger.warn("Previous analysis ran out of memory, skipping");
+				continue;
+			}
 			
+			//If we have a sys timeout then we need to spawn 
+			//a new processes and it will restart this for a single app
+			if (sysTimeout > 0) {
+				runAnalysisSysTimeout(apkResult1Dir, fullFilePath, args[1]);
+				continue;
+			}
+			
+			
+
+
 			
 			AnalysisResults results = null;
 			
 			File sourceSinkFileList = new File(apkResult1Dir, apkFileName + LIST_SUFFIX);
-			File sourceSinkFileResults = new File(apkResult1Dir, apkFileName + RESULTS_SUFFIX);
+			File resultsFile = new File(apkResult1Dir, apkFileName + RESULTS_SUFFIX);
 			File sourceSinkFileDeserializeToUI = new File(apkResult1Dir, sourceAndSinkFileName);
 			File easyTaintFileDeserializeToUI  = new File(apkResult1Dir, easyTaintFileName );
 			File jsonToUIresultsFile = new File(apkResult1Dir, apkFileName + FindHidden.MODEL_TO_UI_CONFIG_SUFFIX );
@@ -230,7 +251,7 @@ public class FindHidden {
 					}
 					
 					//Create source sink for next pass as well
-					NetworkToDeserializePostProcessor pass1 = new NetworkToDeserializePostProcessor(results.context,  sourceSinkFileDeserializeToUI, sourceSinkFileList, easyTaintFileDeserializeToUI,  results.infoFlowResults);
+					NetworkToDeserializePostProcessor pass1 = new NetworkToDeserializePostProcessor(results.context,  sourceSinkFileDeserializeToUI, sourceSinkFileList, easyTaintFileDeserializeToUI, jsonToUIresultsFile, results.infoFlowResults);
 					shouldProcessLists = pass1.process();
 					if (!shouldProcessLists){
 						listFlagFile.createNewFile(); //if we crash here dont restart at list
@@ -288,7 +309,7 @@ public class FindHidden {
 					results = runAnalysis(fullFilePath, args[1]);
 					
 					//Now we are done so we need to figure out where we didnt have mappings
-					new DeserializeToUiPostProcessor(sourceSinkFileResults, jsonToUIresultsFile, results.context, results.infoFlowResults).findHiddenData();
+					new DeserializeToUiPostProcessor(resultsFile, jsonToUIresultsFile, results.context, results.infoFlowResults).findHiddenData();
 						
 					modelToUIFlagFile.createNewFile();
 
@@ -303,6 +324,15 @@ public class FindHidden {
 		} //end for 
 	}
 
+	private static boolean hasJavaError(File dir){
+		String [] resultFile = dir.list(new FilenameFilter() {
+			@Override
+			public boolean accept(File dir, String name) {
+				return (name.startsWith(JAVA_ERROR_PREFIX));
+			}
+		});
+		return resultFile.length > 0;
+	}
 
 	private static void runAnalysisSysTimeout(File apkResultDir, final String fileName, final String androidJar) {
 			
@@ -332,7 +362,7 @@ public class FindHidden {
 			
 			//If the JVM crashes a hs_error_pid.log file will be created, place this file in the 
 			//directory of the analysis running
-			File jvmLogFile = new File(apkResultDir,"java_error%p.log");
+			File jvmLogFile = new File(apkResultDir, JAVA_ERROR_PREFIX + "%p.log");
 			cmd.add("-XX:ErrorFile=" + jvmLogFile.getAbsolutePath());
 			
 			cmd.add("-cp");
@@ -353,6 +383,10 @@ public class FindHidden {
 			cmd.add(aggressiveTaintWrapper ? "--aggressivetw" : "--nonaggressivetw");
 			cmd.add(enableCallbacks ? "--callbacks" : "--nocallbacks");
 			cmd.add(enableExceptions ? "--exceptions" : "--noexceptions");
+			
+			if (forceRun){
+				cmd.add("--force");
+			}
 			
 			cmd.add("--aplength");
 			cmd.add(Integer.toString(accessPathLength));
@@ -389,7 +423,7 @@ public class FindHidden {
 				
 				//All of the proper logs are redirected to error
 				
-				File f= new File(apkResultDir, new File(fileName).getName() + "-" + System.currentTimeMillis() + ".log");
+				File f= new File(apkResultDir, new File(fileName).getName() + "-" + EXEC_ID + ".log");
 				//pb.redirectOutput(f);
 				pb.redirectError(f);//new File("err_" + new File(fileName).getName() + ".txt"));
 				Process proc = pb.start();
@@ -547,6 +581,10 @@ public class FindHidden {
 				computeResultPaths = false;
 				i++;
 			}
+			else if (args[i].equalsIgnoreCase("--force")) {
+				forceRun = true;
+				i++;
+			}
 			else if (args[i].equalsIgnoreCase("--aggressivetw")) {
 //TODO Pull request, this could never be true before
 				aggressiveTaintWrapper = true;
@@ -680,6 +718,8 @@ public class FindHidden {
 		System.out.println("\t--SOURCESSINKS Full path of SourcesAndSinks.txt");
 		System.out.println("\t--EASYTAINT Full path of easy taint wrapper file.");
 		System.out.println("\t--OUTPUT (Optional) Output directory");
+		System.out.println("\t--FORCE (Optional) Force re-run");
+
 		System.out.println();
 		System.out.println("Supported callgraph algorithms: AUTO, CHA, RTA, VTA, SPARK");
 		System.out.println("Supported layout mode algorithms: NONE, PWD, ALL");

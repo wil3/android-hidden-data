@@ -18,13 +18,10 @@
 <source>Sinks_ui.txt</source>
 </file>
 <file>
-<source>ObfuscatedSourcesAndSinks_1.txt</source>
+<source>ss-v5.txt</source>
 </file>
 <file>
 <source>SourcesAndSinks_1.txt</source>
-</file>
-<file>
-<source>SourcesAndSinks_2.txt</source>
 </file>
 <file>
 <source>EasyTaintWrapperSource.txt</source>
@@ -34,6 +31,9 @@
 </file>
 <file>
 <source>run.sh</source>
+</file>
+<file>
+<source>report.sh</source>
 </file>
 <file>
 <source>README.md</source>

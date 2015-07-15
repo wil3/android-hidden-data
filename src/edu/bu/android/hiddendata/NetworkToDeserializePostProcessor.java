@@ -53,6 +53,7 @@ import soot.jimple.AssignStmt;
 import soot.jimple.CastExpr;
 import soot.jimple.ClassConstant;
 import soot.jimple.DefinitionStmt;
+import soot.jimple.InstanceFieldRef;
 import soot.jimple.InterfaceInvokeExpr;
 import soot.jimple.InvokeStmt;
 import soot.jimple.Stmt;
@@ -96,13 +97,13 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 	private File sourcesAndSinksListFile;
 	
 	
-	public NetworkToDeserializePostProcessor(SetupApplication context, File sourcesAndSinksFile, File sourceAndSinkListFile, File easyTaintFile,  InfoflowResults results){
+	public NetworkToDeserializePostProcessor(SetupApplication context, File sourcesAndSinksFile, File sourceAndSinkListFile, File easyTaintFile, File config, InfoflowResults results){
 		super(context);
 		this.apkFileName = new File(context.getApkFileLocation()).getName();
 		this.results = results;
 		this.sourcesAndSinksFile = sourcesAndSinksFile;
 		this.easyTaintWrapperFile = easyTaintFile;
-		this.resultsFile = new File(sourcesAndSinksFile.getParentFile(),apkFileName + FindHidden.MODEL_TO_UI_CONFIG_SUFFIX );
+		this.resultsFile = config;//new File(sourcesAndSinksFile.getParentFile(),apkFileName +  FindHidden.MODEL_TO_UI_CONFIG_SUFFIX );
 		
 		this.sourcesAndSinksListFile = sourceAndSinkListFile;
 		
@@ -165,7 +166,10 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 					
 					//Extract the model class from the deserialize method call so we can compare it 
 					//to list objects
-					modelClassNames.add(extractModelClassName(sinkStmt));
+					String className = extractModelClassName(sink);
+					if (className != null){
+						modelClassNames.add(className);
+					}
 			}
 			
 			
@@ -194,7 +198,9 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 			public void onMethodExtracted(SootClass sootClass, SootMethod method) {
 				
 				String methodName = method.getName();
-				if (!(method.getReturnType() instanceof VoidType)) {
+				if (!(method.getReturnType() instanceof VoidType) && !methodName.equals("toString") 
+						&& !methodName.equals("describeContents")
+						&& !methodName.equals("compareTo")) {
 
 				//if (shouldAcceptMethod(methodName)){
 					modelMethodSignatures.add(method.getSignature());
@@ -365,6 +371,7 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 	 * @return
 	 */
 	private String findCasting(Unit[] units, int start){
+		//TODO fix this its really hacky and doesnt work for all cases
 			Stmt stmt = (Stmt)units[start];
 			if (stmt instanceof InvokeStmt){
 				Value value = ((InvokeStmt) stmt).getInvokeExprBox().getValue();
@@ -388,7 +395,11 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 										//Next previous instruction shoudl be our target
 										Stmt modelRef = (Stmt)units[start-2];
 										if (modelRef instanceof AssignStmt){
-											SootMethodRef methodRef = ((AssignStmt)modelRef).getInvokeExpr().getMethodRef();
+											AssignStmt assignStmt = (AssignStmt)modelRef;
+											if (!assignStmt.containsInvokeExpr()){
+												return null;
+											}
+											SootMethodRef methodRef = assignStmt.getInvokeExpr().getMethodRef();
 											SootMethod sm = methodRef.resolve();
 											
 											String methodSignatureTag = PostProcessor.getSignatureFromTag( sm.getTags());
@@ -454,56 +465,6 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 
 	
 	/**
-	 * Parse out the model class name from the deserialization call
-	 * @param stmt
-	 * @return
-	 */
-	private String extractModelFromAssignStmt(AssignStmt stmt){
-		String className = null;
-
-		Value v = stmt.getRightOpBox().getValue();
-		 if (v instanceof AbstractInvokeExpr){
-			 
-			 AbstractInvokeExpr invokeExpr = (AbstractInvokeExpr)v;
-			 String sig = invokeExpr.getMethodRef().getSignature();
-			 logger.debug("Signature " + sig);
-			 if (modelParameterIndexLookup.containsKey(sig)){
-
-				 int parameterIndex = modelParameterIndexLookup.get(sig);
-				 				 
-				 Value boxVal = invokeExpr.getArg(parameterIndex);
-				 if (boxVal != null){
-					//Value boxVal = vb.getValue();
-					if (boxVal instanceof JimpleLocal){
-						
-						 Type argType = boxVal.getType(); //Is this the class or a reference?
-						 String argTypeString = argType.toString();
-
-						 if (argTypeString.equals("java.util.Map")){
-						
-						 } else if (argTypeString.equals("java.lang.Class")){
-							 
-						 } else {
-							 className = argTypeString;
-						 }
-					} else if (boxVal instanceof ClassConstant){
-						
-						ClassConstant rt = (ClassConstant) boxVal;		
-						className = convertBytecodeToJavaClassName(rt.getValue());
-
-					} else {
-						logger.error("Fuck if I know");
-					}
-				 }
-			 }
-			 
-		 }
-		 return className;
-	}
-	
-	
-	
-	/**
 	 * 
 	 * @param baseClassName Never changes, the original class
 	 * @param sootClass Class which is baseClassName or parent
@@ -562,19 +523,23 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 	/**
 	 * Extract model class from this statement
 	 */
-	private String extractModelClassName(Stmt stmt){
+	private String extractModelClassName(ResultSinkInfo sink){
 
 		String className = null;
-		if (stmt instanceof InvokeStmt){
-			className = extractModelFromInvokeStmt((InvokeStmt) stmt);
+		if (sink.getSink() instanceof InvokeStmt){
+			className = extractModelFromInvokeStmt((InvokeStmt) sink.getSink());
 
-		} else if (stmt instanceof AssignStmt){
-			className = extractModelFromAssignStmt((AssignStmt) stmt);
+		} else if (sink.getSink() instanceof AssignStmt){
+			
+			SootMethod m = sink.getMethod();
+			
+			//m.get
+			className = extractModelFromAssignStmt(m, (AssignStmt) sink.getSink());
 		}
 
 		return className;
 	}
-	
+	/*
 	private SootClass extractSootClassModel(Stmt stmt){
 		String className = extractModelClassName(stmt);
 		if (className != null){
@@ -583,9 +548,86 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		
 		return null;
 	}
+	*/
 	
 	
+	/**
+	 * Parse out the model class name from the deserialization call
+	 * @param stmt
+	 * @return
+	 */
+	private String extractModelFromAssignStmt(SootMethod m, AssignStmt stmt){
+		String className = null;
 	
+		Value v = stmt.getRightOpBox().getValue();
+		 if (v instanceof AbstractInvokeExpr){
+			 
+			 AbstractInvokeExpr invokeExpr = (AbstractInvokeExpr)v;
+			 String sig = invokeExpr.getMethodRef().getSignature();
+			 logger.debug("Signature " + sig);
+			 if (modelParameterIndexLookup.containsKey(sig)){
+	
+				 int parameterIndex = modelParameterIndexLookup.get(sig);
+				 				 
+				 Value boxVal = invokeExpr.getArg(parameterIndex);
+				 
+				 if (boxVal != null){
+					//Value boxVal = vb.getValue();
+					if (boxVal instanceof JimpleLocal){
+							String localName = ((JimpleLocal)boxVal).getName();
+						 Type argType = boxVal.getType(); //Is this the class or a reference?
+						 String argTypeString = argType.toString();
+	
+						 if (argTypeString.equals("java.util.Map")){
+						
+						 } else if (argTypeString.equals("java.lang.Class")){
+							 
+							 //Just need to retrieve the value of the local variable
+							 Body b = m.retrieveActiveBody();
+							if (b != null){
+								Unit[] units = new Unit[b.getUnits().size()];
+								units = b.getUnits().toArray(units);
+								for (int i=0; i<units.length; i++){
+									if (units[i] instanceof AssignStmt){
+										AssignStmt assignStmt = (AssignStmt)units[i];
+										if (assignStmt.getLeftOp() instanceof JimpleLocal){
+											//TODO this could be reassigned multiple different location in the class
+											//this is muchmore complex
+											if (((JimpleLocal)assignStmt.getLeftOp()).getName().equals(localName)){
+												
+												//If it is a class field, where is it set? 
+												// (1) Local variable - just pull it straight from there
+												// (2) From method parameter - need to locate all instances of method them pull from here
+												// (3) From class parameter - set somewhere in the class, or 
+												if (assignStmt.getRightOp() instanceof InstanceFieldRef){
+													className = ((InstanceFieldRef)assignStmt.getRightOp()).getFieldRef().declaringClass().getName();
+													break;
+												}
+											}
+										}
+									}
+								}
+								logger.trace("");
+							}
+						 } else {
+							 className = argTypeString;
+						 }
+					} else if (boxVal instanceof ClassConstant){
+						
+						ClassConstant rt = (ClassConstant) boxVal;		
+						className = convertBytecodeToJavaClassName(rt.getValue());
+	
+					} else {
+						logger.error("Fuck if I know");
+					}
+				 }
+			 }
+			 
+		 }
+		 return className;
+	}
+
+
 	/**
 	 * Load the parameter mappings
 	 * @return
