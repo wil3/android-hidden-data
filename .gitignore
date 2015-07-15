@@ -1,7 +1,6 @@
 bin/
 sootOutput/
 target/
-.classpath
 .settings
 target/
 results-1/
