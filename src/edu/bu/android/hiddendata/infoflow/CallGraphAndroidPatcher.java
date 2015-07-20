@@ -236,9 +236,11 @@ public class CallGraphAndroidPatcher implements PreAnalysisHandler {
 		for (SootMethod onPostExecuteMethod : onPostExecuteMethods){
 			
 			//By the signature, it has only 1 param
-			Type paramType = onPostExecuteMethod.getParameterTypes().get(0);
-			if (paramType.equals(returnType)){
-				return onPostExecuteMethod;
+			if (onPostExecuteMethod.getParameterTypes().size() > 0){
+				Type paramType = onPostExecuteMethod.getParameterTypes().get(0);
+				if (paramType.equals(returnType)){
+					return onPostExecuteMethod;
+				}
 			}
 		}
 		return null;
