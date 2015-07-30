@@ -52,6 +52,8 @@ public abstract class PostProcessor {
 				className.startsWith("dalvik.") ||
 
 				className.startsWith("com.google.gson");
+				//TODO this is not working with obfuscated packages for example newrelic 
+				//and messing up results
 	}
 	
 	public static String getSignatureFromTag(List<Tag> tags){
