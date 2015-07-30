@@ -171,3 +171,15 @@ Creating a file in multiple directories
 `
 find . -type d -exec touch {}/hiya \;
 `
+
+
+F:or the source sink file for obfuscation
+`
+cat *.apk | sort | uniq | sed 's/$/ -> _SINK_/'
+`
+To find categorys of apps from playdrone
+cat 2014-10-31.json | ~/programs/jq '.[] | if .category == "SOCIAL" then .apk_url else null end' | grep -Eo '[^\/]+\.apk' > social_apps.txt
+
+
+Compare apps
+diff -u social_apps.txt playdrone-v3_apks.txt | grep -Eo '^\s[a-zA-Z].*'
