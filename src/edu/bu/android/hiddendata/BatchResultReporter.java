@@ -28,32 +28,42 @@ import edu.bu.android.hiddendata.model.Results;
 
 public class BatchResultReporter {
 	private static final Logger logger = LoggerFactory.getLogger("Result");
-	private final File resultsDir;
+	//private final File resultsDir;
 	private List<File> resultDirs = new ArrayList<File>();
 	
-	public BatchResultReporter(String resultsDir){
-		this.resultsDir = new File(resultsDir);
+	public BatchResultReporter(){
 	}
 	
+	/**
+	 * We want to only look at full paths from the file, ie the file we use to feed into the analysis
+	 * @param file
+	 */
 	public void loadFromFile(String file){
 		Path path = FileSystems.getDefault().getPath(file);
 		try {
 			List<String> apks = Files.readAllLines(path, Charset.defaultCharset());
 			for (String apk : apks){
-				resultDirs.add(new File(resultsDir, apk));
+				resultDirs.add(new File(apk));
 			}
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
 	}
 	
-	public void loadAll(){
+	public void loadAll(String resultDirFilePath){
+		File resultsDir = new File(resultDirFilePath);
+
 		String[] dirFiles = resultsDir.list();
 		for (String dir : dirFiles){
 			resultDirs.add(new File(resultsDir, dir));
 		}
 	}
-	public void getFinishedWithResult(boolean display){
+	/**
+	 * Results found with json results file
+	 * @param display
+	 * @return
+	 */
+	public List<File>  getFinishedWithResult(boolean display){
 		List<File> resultFiles = new ArrayList<File>();
 		
 		for (File apk : resultDirs){
@@ -72,6 +82,7 @@ public class BatchResultReporter {
 		if (display){
 			processResults(resultFiles);
 		}
+		return resultFiles;
 	}
 	
 	public void listFinished(){
@@ -79,11 +90,13 @@ public class BatchResultReporter {
 		display(resultFiles, true);
 	}
 	
-	public int getFinished(){
+	/**
+	 * Finished, may be have results, may not. But did not crash
+	 * @return
+	 */
+	public List<File>  getFinished(){
 		List<File> resultFiles = new ArrayList<File>();
-		String[] dirFiles = resultsDir.list();
-		for (String dir : dirFiles){
-			File apkDirFile = new File(resultsDir, dir);
+		for (File apkDirFile : resultDirs){
 			String [] resultFile = apkDirFile.list(new FilenameFilter() {
 				@Override
 				public boolean accept(File dir, String name) {
@@ -96,23 +109,32 @@ public class BatchResultReporter {
 			}
 		}
 		logger.info("{} finished", resultFiles.size());
-		return resultFiles.size();
+		return resultFiles;
 	}
-	
+	/**
+	 * Get ones that looked like they crashed because they done have the correct flags. Also want ot make sure 
+	 * it didnt run out of memory
+	 * @param display
+	 */
 	public void getCrashed(boolean display){
 		//String resultsDir = "";
 		List<File> crashedFiles = new ArrayList<File>();
-		String[] dirFiles = resultsDir.list();
-		for (String dir : dirFiles){
-			File apkDirFile = new File(resultsDir, dir);
-			String [] resultFile = apkDirFile.list(new FilenameFilter() {
+		for (File apkDirFile : resultDirs){
+			String [] doneFlag = apkDirFile.list(new FilenameFilter() {
 				@Override
 				public boolean accept(File dir, String name) {
-					return (name.endsWith(".flag"));
+					return (name.equals(FindHidden.FLAG_DONE));
 				}
 			});
 			
-			if (resultFile.length == 0){ // no flags so we crashed in the beginnging for some reason
+			String [] oom = apkDirFile.list(new FilenameFilter() {
+				@Override
+				public boolean accept(File dir, String name) {
+					return name.startsWith("java_error") && name.endsWith("log");
+				}
+			});
+			
+			if (doneFlag.length == 0 && oom.length == 0){ // no flags so we crashed in the beginnging for some reason
 				crashedFiles.add(apkDirFile);
 			}
 		}
@@ -122,9 +144,21 @@ public class BatchResultReporter {
 		}
 	}
 	
-	
+	/**
+	 * Out of memory if java_error files exists and the model2ui.flag does NOT exist. This is becuase it 
+	 * may have evntually finished on another run
+	 * @param display
+	 */
 	public void getOutOfMemory(boolean display){
 		List<File> files = getFiles("java_error", "log");
+		List<File> finished = getFinished();
+		Iterator<File> it = files.iterator();
+		while (it.hasNext()){
+			File f = it.next();
+			if (finished.contains(f)){
+				it.remove();
+			}
+		}
 		logger.info("{} ran out of memory", files.size());
 	}
 	
@@ -238,12 +272,12 @@ public class BatchResultReporter {
 	    try {
 			CommandLine line = parser.parse( options, args );
 			
-			BatchResultReporter report = new BatchResultReporter(line.getOptionValue("results"));
+			BatchResultReporter report = new BatchResultReporter();
 			
 			if (line.hasOption("display")){
 				report.loadFromFile(line.getOptionValue("display"));
 			} else {
-				report.loadAll();
+				report.loadAll(line.getOptionValue("results"));
 			}
 			
 			
