@@ -193,12 +193,9 @@ public class CallGraphAndroidPatcher implements PreAnalysisHandler {
 			}
 			
 			if (patched){
-				Unit[] u = new Unit[body.getUnits().size()];
-				u = body.getUnits().toArray(u);
-				int lineNumber2 = u[13].getJavaSourceStartLineNumber();
-
-				int lineNumber = u[15].getJavaSourceStartLineNumber();
-				logger.trace("");
+				//Unit[] u = new Unit[body.getUnits().size()];
+			//	u = body.getUnits().toArray(u);
+			//	logger.trace("");
 			}
 
 		}
