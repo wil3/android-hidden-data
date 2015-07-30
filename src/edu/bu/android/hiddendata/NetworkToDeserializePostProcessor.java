@@ -81,7 +81,7 @@ import soot.util.Chain;
 public class NetworkToDeserializePostProcessor extends PostProcessor {
 
 	//private final Hashtable<String, ObjectExtractionQuery> extractionPoints;
-	private final Hashtable<String,Integer> modelParameterIndexLookup = new Hashtable<String, Integer>();
+	//private final Hashtable<String,Integer> modelParameterIndexLookup = new Hashtable<String, Integer>();
 	private static final Logger logger = LoggerFactory.getLogger(NetworkToDeserializePostProcessor.class.getName());
 
 	private InfoflowResults results;
@@ -108,10 +108,12 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		this.sourcesAndSinksListFile = sourceAndSinkListFile;
 		
 		//TODO stick in config file
+		/*
 		modelParameterIndexLookup.put("<com.google.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)>", 1);
 		modelParameterIndexLookup.put("<com.google.gson.Gson: java.lang.Object fromJson(com.google.gson.JsonElement,java.lang.Class)>", 1);
 		modelParameterIndexLookup.put("<com.google.gson.Gson: java.lang.Object fromJson(java.io.Reader,java.lang.Class)>", 1);
 		modelParameterIndexLookup.put("<java.util.List: boolean add(java.lang.Object)>", 0);
+		*/
 	}
 	
 	
@@ -273,7 +275,6 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		while (it.hasNext()){
 			final SootClass sc = it.next();
 			if (sc.toString().contains("com.github.wil3.android.flowtests.D")){
-				logger.trace("");
 				//sc.setApplicationClass();
 				//new ModelExtraction().getModels(sc.getName());
 			}
@@ -316,7 +317,6 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 						 	
 						} else if (stmt.toString().contains("<java.util.List: boolean addAll(java.util.Collection)>")){
 							//A casting must occur right before this
-							logger.info("");
 							String baseClass = findCasting(unitArray, i);
 							if (baseClass != null && modelClassNames.contains(baseClass)){
 								String sig = makeSignature(sc, stmt);
@@ -550,6 +550,19 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 	}
 	*/
 	
+	/**
+	 * Get the index where we can extract the class that is the model
+	 * @return
+	 */
+	private Value getClassParameter(AbstractInvokeExpr invokeExpr){
+		for (Value arg : invokeExpr.getArgs()){
+			String t = arg.getType().toString();
+			if (arg.getType().toString().equals("java.lang.Class")){
+				return arg;
+			}
+		}
+		return null;
+	}
 	
 	/**
 	 * Parse out the model class name from the deserialization call
@@ -565,21 +578,27 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 			 AbstractInvokeExpr invokeExpr = (AbstractInvokeExpr)v;
 			 String sig = invokeExpr.getMethodRef().getSignature();
 			 logger.debug("Signature " + sig);
-			 if (modelParameterIndexLookup.containsKey(sig)){
+			// if (modelParameterIndexLookup.containsKey(sig)){
 	
-				 int parameterIndex = modelParameterIndexLookup.get(sig);
+			 	if (invokeExpr.getArgCount() == 1){ //assume it is static like protobuf
+			 		//TODO implement protobuff
+			 		return null;
+			 	} 
+			 	
+				// int parameterIndex = modelParameterIndexLookup.get(sig);
 				 				 
-				 Value boxVal = invokeExpr.getArg(parameterIndex);
+				 Value boxVal = getClassParameter(invokeExpr);//invokeExpr.getArg(parameterIndex);
 				 
 				 if (boxVal != null){
 					//Value boxVal = vb.getValue();
 					if (boxVal instanceof JimpleLocal){
-							String localName = ((JimpleLocal)boxVal).getName();
+						
+						String localName = ((JimpleLocal)boxVal).getName();
 						 Type argType = boxVal.getType(); //Is this the class or a reference?
 						 String argTypeString = argType.toString();
 	
 						 if (argTypeString.equals("java.util.Map")){
-						
+							 //currently not supported
 						 } else if (argTypeString.equals("java.lang.Class")){
 							 
 							 //Just need to retrieve the value of the local variable
@@ -621,7 +640,7 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 						logger.error("Fuck if I know");
 					}
 				 }
-			 }
+			// }
 			 
 		 }
 		 return className;
