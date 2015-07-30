@@ -28,7 +28,7 @@ public class ConfigUtils {
 	 * @param base A base file used to append to these new source/sinks. Set to null if none is to be used.
 	 * @param file The resulting source and sink file
 	 * @param sources
-	 * @param sinks
+	 * @param sinks 
 	 */
 	public static void createSinkSourceFile(String base, File file,  Set<String> sources, Set<String> sinks){
 		
@@ -62,6 +62,8 @@ public class ConfigUtils {
 					writer.println(sink);
 				}
 			}
+			
+			
 		} catch (IOException e){
 			logger.error(e.getMessage());
 		} finally {
