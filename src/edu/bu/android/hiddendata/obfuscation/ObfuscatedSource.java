@@ -57,6 +57,9 @@ public class ObfuscatedSource {
 	}
 	
 	public static void main(String[] args){
+		/**
+		 * path: Path of where to find the directory containing the files with the jsonJson
+		 */
 		String path = args[0];
 		String output = args[1];
 		ObfuscatedSource o = new ObfuscatedSource(path);
