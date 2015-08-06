@@ -4,6 +4,12 @@
 <com.google.gson.Gson: java.lang.Object fromJson(java.io.Reader,java.lang.Class)> -> _SINK_
 <com.google.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)> -> _SINK_
 
+%Jackson XML
+%<com.fasterxml.jackson.databind.ObjectMapper: java.lang.Object readValue(byte[],java.lang.Class)> -> _SINK_
+%<com.fasterxml.jackson.databind.ObjectMapper: java.lang.Object readValue(java.io.InputStream,java.lang.Class)> -> _SINK_
+%<com.fasterxml.jackson.databind.ObjectMapper: java.lang.Object readValue(java.io.Reader,java.lang.Class)> -> _SINK_
+%<com.fasterxml.jackson.databind.ObjectMapper: java.lang.Object readValue(java.lang.String,java.lang.Class)> -> _SINK_
+
 %Flexjson
 %<flexjson: java.lang.Object deserialize(java.io.Reader, java.lang.Class)> -> _SINK_
 %<flexjson: java.lang.Object deserialize(java.io.Reader, java.lang.String, java.lang.Class)> -> _SINK_
@@ -14,7 +20,7 @@
 %<flexjson: flexjson.JSONDeserializer use(java.lang.String, java.lang.Class)> -> _SINK_
 
 % Http libraries
-
+<java.net.HttpURLConnection: java.io.InputStream getInputStream()> -> _SOURCE_
 <java.net.URLConnection: java.io.InputStream getInputStream()> -> _SOURCE_
 <org.apache.http.HttpEntity: java.io.InputStream getContent()> -> _SOURCE_
 <java.net.URL: java.net.URLConnection openConnection()> -> _SOURCE_
