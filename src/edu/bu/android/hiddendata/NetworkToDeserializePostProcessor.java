@@ -130,6 +130,11 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		HashMap<String, ListFlow> addMethodParameterClassNames = new HashMap<String, ListFlow>();
 		Set<String> modelClassNames = new HashSet<String>();
 
+		//Keep track of original sources
+		//so we can use this for the model-ui pass
+		//to determine if we can use the source 
+		Set<String> originalSinks = new HashSet<String>();
+
 		Set<String> sourceSignatures = new HashSet<String>();
 		
 		for (ResultSinkInfo sink : results.getResults().keySet()) {
@@ -163,9 +168,9 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 			if (isDeserializeSink){
 					//Get the sink and add to file for next pass. We can use the entire method call
 					//because soot will track taint of the casting
-					
-					sourceSignatures.add(makeSignature(sink));
-					
+					String sig = makeSignature(sink);
+					sourceSignatures.add(sig);
+					originalSinks.add(sig);
 					//Extract the model class from the deserialize method call so we can compare it 
 					//to list objects
 					String className = extractModelClassName(sink);
@@ -183,7 +188,6 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		
 		
 		
-		DeserializeToUIConfig result = new DeserializeToUIConfig();
 		List<Model> models = new ArrayList<Model>();
 		final Set<String> modelMethodSignatures = new HashSet<String>();
 
@@ -244,6 +248,9 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		ConfigUtils.createSinkSourceFile("SourcesAndSinks_2.txt", sourcesAndSinksListFile, listConstructorSources, listAddModelSignatures);
 		
 		//Write out results to be used for next pass
+		DeserializeToUIConfig result = new DeserializeToUIConfig();
+
+		result.setOriginalSinks(originalSinks);
 		result.setGetMethodSignatures(modelMethodSignatures);
 		result.setModelNames(allModels);
 		result.setModelToListSignatureMapping(signatureToModelMapping);

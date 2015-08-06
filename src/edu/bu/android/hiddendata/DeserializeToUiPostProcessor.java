@@ -55,7 +55,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 	private static final Logger logger = LoggerFactory.getLogger(DeserializeToUiPostProcessor.class.getName());
 
 	private InfoflowResults results;
-	private DeserializeToUIConfig modelResults;
+	private DeserializeToUIConfig stage2Config;
 	File resultsFile;
 	/**
 	 * 
@@ -67,9 +67,12 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 		this.results = netToJsonFlowResults;
 		this.resultsFile = resultsFile;
 		//Obtained from the first pass where all the models are found
-		this.modelResults = JsonUtils.loadFirstPassResultFile(netToJsonResultsFile);
+		this.stage2Config = JsonUtils.loadFirstPassResultFile(netToJsonResultsFile);
 	}
 	
+	/**
+	 * We check if the source is not 
+	 */
 	public void findHiddenData(){
 		
 
@@ -77,7 +80,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 		Set<String> foundSourcesConfidentLow = new HashSet<String>();
 
 		Set<String> hiddenMethods = new HashSet<String>();
-		hiddenMethods.addAll(modelResults.getGetMethodSignatures());
+		hiddenMethods.addAll(stage2Config.getGetMethodSignatures());
 		
 		if (results != null){
 
@@ -93,7 +96,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 			for (ResultSinkInfo foundSink : results.getResults().keySet()) {
 				
 				Set<String> getMethodsUsedForSink = new HashSet<String>();
-				boolean hasFromJson = false;
+				boolean isOriginalDeserializer = false;
 				for (ResultSourceInfo foundSource : results.getResults().get(foundSink)) {
 					
 					//Make sure its form original source
@@ -102,8 +105,13 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 						
 						//If fromJson do nothing everything is great
 						//otherwise
+						
+						//If original sink
 						if (foundSource.getSource().toString().contains("fromJson")){
-							hasFromJson = true;
+							isOriginalDeserializer = true;
+						}
+						if (isDeserializeMethod(foundSource.getSource().toString())){
+							isOriginalDeserializer = true;
 						}
 						
 						//First try seeign if the model is included in the path and just walk backwards
@@ -120,7 +128,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 				
 				//Is a source of fromJson? If so then everything is cool
 				//we will add all the getMethods found here
-				if (hasFromJson){
+				if (isOriginalDeserializer){
 					foundSourcesConfidentHigh.addAll(getMethodsUsedForSink);
 				} else {
 					//Not really confident
@@ -159,7 +167,14 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 		JsonUtils.writeResults(resultsFile, results);		
 		
 	}
-	
+	private boolean isDeserializeMethod(String sig){
+		for (String originalDeserialize : stage2Config.getOriginalSinks()){
+			if (sig.contains(originalDeserialize)){
+				return true;
+			}
+		}
+		return false;
+	}
 	private Set<String> notUsed ( Map<String, Integer> methodsUsed){
 		Set<String> notUsed = new HashSet<String>();
 		
@@ -183,7 +198,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 		SortedMap<String, Integer> methodOccurences = new TreeMap<String, Integer>();
 		
 		//Init method occurences to 0
-		for (String getClassName : modelResults.getGetMethodSignatures()){
+		for (String getClassName : stage2Config.getGetMethodSignatures()){
 			methodOccurences.put(getClassName, 0);
 		}
 
@@ -210,7 +225,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 					final Unit u = iter.next();
 					
 					//For this 
-					for (String getClassName : modelResults.getGetMethodSignatures()){
+					for (String getClassName : stage2Config.getGetMethodSignatures()){
 						if (u.toString().contains(getClassName)){
 							//if (methodOccurences.containsKey(getClassName)){
 							int c = methodOccurences.get(getClassName);
@@ -232,16 +247,29 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 	 * @return Return a list because we want to find all the get methods that may have been accessed to get to this sink
 	 */
 	private Set<String> getTaintedModelMethodFromFlow(ResultSourceInfo source){
-		
-		
 		Set<String> tainted = new HashSet<String>();
+
+		//No path, this source is the only thing
+		if (source.getPath().isEmpty()){
+			Stmt stmt = source.getStmt();
+
+			String signature = getSignatuteFromStmt(stmt, false);
+			
+			if (signature != null){
+				if (stage2Config.getGetMethodSignatures().contains(signature)){
+					//return signature;
+					tainted.add(signature);
+				}
+			}
+		}
+		
 		Collections.reverse(source.getPath());
 		for (Stmt stmt : source.getPath()){
 			
 			String signature = getSignatuteFromStmt(stmt, false);
 			
 			if (signature != null){
-				if (modelResults.getGetMethodSignatures().contains(signature)){
+				if (stage2Config.getGetMethodSignatures().contains(signature)){
 					//return signature;
 					tainted.add(signature);
 				}

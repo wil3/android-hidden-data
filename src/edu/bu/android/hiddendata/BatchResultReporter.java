@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 import org.apache.commons.cli.CommandLine;
@@ -64,6 +65,15 @@ public class BatchResultReporter {
 	 * @return
 	 */
 	public List<File>  getFinishedWithResult(boolean display){
+		List<File> resultFiles = getResultFiles();
+		logger.info("{} results found", resultFiles.size());
+		if (display){
+			processResults(resultFiles);
+		}
+		return resultFiles;
+	}
+	
+	private List<File> getResultFiles(){
 		List<File> resultFiles = new ArrayList<File>();
 		
 		for (File apk : resultDirs){
@@ -76,11 +86,6 @@ public class BatchResultReporter {
 			if (resultFile.length == 1){
 				resultFiles.add(new File(apk, resultFile[0]));
 			}
-		}
-		
-		logger.info("{} results found", resultFiles.size());
-		if (display){
-			processResults(resultFiles);
 		}
 		return resultFiles;
 	}
@@ -239,9 +244,55 @@ public class BatchResultReporter {
 			if (!result.getUsedConfidenceHigh().contains(key) 
 					&& !result.getUsedConfidenceLow().contains(key)){
 				//result.getGetMethodsInApp().remove(key);
-				logger.info(key);
+				logger.info(key  + " -> " + count);
 			}
 		}
+	}
+	
+	/**
+	 * From the results see which are candidates based on a list of keywords
+	 * @param keywordFile
+	 */
+	public void getCandidates(String keywordFile){
+		
+		List<String> keywords = loadKeywords(keywordFile);
+		List<File> results = getResultFiles();
+		for (File f : results){
+			Results result = new JsonUtils<Results>().load(f, Results.class);
+			Map<String, Integer> methods = result.getGetMethodsInApp();
+			Iterator<String> it = methods.keySet().iterator();
+			while (it.hasNext()){
+				String key = it.next();
+				if (result.getUsedConfidenceHigh().contains(key)){
+					continue;
+				}
+				if (result.getUsedConfidenceLow().contains(key)){
+					continue;
+				}
+				if (isKeyword(keywords, key)){
+					System.out.println(result.getApkName());
+				}
+			}
+		}
+	}
+	private boolean isKeyword(List<String> list, String name){
+		for (String l : list){
+			if (name.toLowerCase().contains(l)){
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	private List<String> loadKeywords(String file){
+		Path path = FileSystems.getDefault().getPath(file);
+		try {
+			List<String> keywords = Files.readAllLines(path, Charset.defaultCharset());
+			return keywords;
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return null;
 	}
 	public static void main(String[] args){
 		
@@ -266,7 +317,7 @@ public class BatchResultReporter {
 		options.addOption("n", "Network to model flows found");
 		options.addOption("N", "List of APKs where network to model flows found");
 		
-		
+		options.addOption("c", "candidates", true, "List candidates");
 		options.addOption("t", "Total number of APKs processed");
 
 	    try {
@@ -311,6 +362,9 @@ public class BatchResultReporter {
 				report.getOutOfMemory(true);
 			}
 			
+			if (line.hasOption("c")){
+				report.getCandidates(line.getOptionValue("c"));
+			}
 		} catch (ParseException e) {
 			e.printStackTrace();
 		}

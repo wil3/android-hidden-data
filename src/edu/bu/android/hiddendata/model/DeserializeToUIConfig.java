@@ -6,6 +6,7 @@ import java.util.Map;
 
 public class DeserializeToUIConfig {
 
+	private Collection<String> originalSinks;
 	private Collection<String> getMethodSignatures;
 	private Collection<String> modelNames;
 	private Collection<InjectionPoint> injections;
@@ -54,6 +55,14 @@ public class DeserializeToUIConfig {
 	public void setModelToListSignatureMapping(
 			Map<String, String> modelToListSignatureMapping) {
 		this.modelToListSignatureMapping = modelToListSignatureMapping;
+	}
+
+	public Collection<String> getOriginalSinks() {
+		return originalSinks;
+	}
+
+	public void setOriginalSinks(Collection<String> originalSinks) {
+		this.originalSinks = originalSinks;
 	}
 
 }
