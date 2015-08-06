@@ -1,3 +1,5 @@
+% This is actually the default Easy taint that is used if one is not specified
+
 % The file lists the methods that add a taint to the base object or return tainted objects if called with tainted arguments. This simple approach
 % works well for the Java collection classes, string buffers and other commonly used data structures
 % Packages to include in the analysis
@@ -9,10 +11,7 @@
 ^android.
 ^java.
 ^org.apache.http.
-%^com.github.
-^com.github.wil3.android.flowtests.Data
-^com.github.wil3.android.flowtests.IP
-^com.github.wil3.android.flowtests.backwardspropagation.Source
+
 %%%%%%%%%%%%%%%%%%
 % NEW
 %%%%%%%%%%%%%%%%%%
@@ -25,15 +24,6 @@
 
 <android.text.SpannableString: void <init>(java.lang.CharSequence)>
 
-
-%Trial
-
-%<android.widget.ListView: void setAdapter(android.widget.ListAdapter)>
-%<android.widget.Adapter: android.view.View getView(int,android.view.View,android.view.ViewGroup)>
-%~com.github.wil3.android.flowtests.CompleteListAdapter
-%<com.github.wil3.android.flowtests.CompleteListAdapter: void <init>(android.app.Activity,java.util.List)>
-%<com.github.wil3.android.flowtests.TaintTest: void <init>(com.github.wil3.android.flowtests.IP)>
-%%%%%%%%%%%%%%
 
 <java.util.Stack: java.lang.Object push(java.lang.Object)>
 
