@@ -384,17 +384,19 @@ public class ModelExtraction {
 	@SuppressWarnings("restriction")
 	public List<String> getClassNamesFromReturnSignature(String listSignature){
 		//To force processes fields make it look like a method signature
-		if (!listSignature.startsWith("()")){
-			listSignature = "()" + listSignature;
-		}
-		SignatureParser sp = SignatureParser.make();
-		MethodTypeSignature methodTypeSignature = sp.parseMethodSig(listSignature);
-		ReturnType returnType = methodTypeSignature.getReturnType();
-		if (returnType instanceof ClassTypeSignature){
-			
-			List<String> argTypes = getTypeByIdentifier(((ClassTypeSignature) returnType).getPath());
-			//For list there should only be one generic
-			return argTypes;
+		if (listSignature != null){
+			if (!listSignature.contains("(") && !listSignature.contains(")")){
+				listSignature = "()" + listSignature;
+			}
+			SignatureParser sp = SignatureParser.make();
+			MethodTypeSignature methodTypeSignature = sp.parseMethodSig(listSignature);
+			ReturnType returnType = methodTypeSignature.getReturnType();
+			if (returnType instanceof ClassTypeSignature){
+				
+				List<String> argTypes = getTypeByIdentifier(((ClassTypeSignature) returnType).getPath());
+				//For list there should only be one generic
+				return argTypes;
+			}
 		}
 		//PostProcessor.convertBytecodeToJavaClassName(classPath)
 		return new ArrayList<String>();

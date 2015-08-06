@@ -581,8 +581,7 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 			// if (modelParameterIndexLookup.containsKey(sig)){
 	
 			 	if (invokeExpr.getArgCount() == 1){ //assume it is static like protobuf
-			 		//TODO implement protobuff
-			 		return null;
+			 		return invokeExpr.getMethodRef().declaringClass().getName();
 			 	} 
 			 	
 				// int parameterIndex = modelParameterIndexLookup.get(sig);

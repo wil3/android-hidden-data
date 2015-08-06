@@ -51,7 +51,8 @@ public abstract class PostProcessor {
 				className.startsWith("com.android") ||
 				className.startsWith("dalvik.") ||
 
-				className.startsWith("com.google.gson");
+				
+				className.startsWith("com.google");
 				//TODO this is not working with obfuscated packages for example newrelic 
 				//and messing up results
 	}
