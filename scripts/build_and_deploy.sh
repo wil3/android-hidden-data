@@ -3,13 +3,6 @@
 # Script to build the soot libraries and deploy to local repo
 # Change the following variables for your own machine
 
-if [ $# -eq 0 ]
-  then
-    echo "Please specify the endpoint to deploy in format <user>:<ip address>:<remote path>"
-fi
-
-ENDPOINT=$1
-
 
 #
 # Replace this location with workspace
@@ -35,6 +28,17 @@ mvn deploy:deploy-file -Durl=$REPO -Dfile=$SOOT_INFOFLOW_ANDROID_JAR -DgroupId=e
 #Fully build
 cd $WORKSPACE/android-hidden-data/
 mvn clean assembly:assembly
+
+
+
+if [ $# -eq 0 ]
+  then
+    echo "Please specify the endpoint to deploy in format <user>:<ip address>:<remote path>"
+    exit
+fi
+
+ENDPOINT=$1
+
 
 #Get current version
 VERSION=$(mvn org.apache.maven.plugins:maven-help-plugin:2.1.1:evaluate -Dexpression=project.version | grep -v '\[')
