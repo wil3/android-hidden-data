@@ -1,0 +1,2 @@
+<java.net.HttpURLConnection: java.io.InputStream getInputStream()> -> _SOURCE_
+<com.example.tutorial.AddressBookProtos$AddressBook: com.example.tutorial.AddressBookProtos$AddressBook parseFrom(java.io.InputStream)> -> _SINK_

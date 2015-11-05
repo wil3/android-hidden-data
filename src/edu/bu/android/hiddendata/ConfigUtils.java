@@ -25,18 +25,17 @@ public class ConfigUtils {
 	/**
 	 * Create for the second pass so we can start independently
 	 * 
-	 * @param base A base file used to append to these new source/sinks. Set to null if none is to be used.
-	 * @param file The resulting source and sink file
+	 * @param extrasFile A file containing extra sources and sinks to append to these new source/sinks. Set to null if none is to be used.
+	 * @param destFile The resulting source and sink file
 	 * @param sources
 	 * @param sinks 
 	 */
-	public static void createSinkSourceFile(String base, File file,  Set<String> sources, Set<String> sinks){
-		
+	public static void createSinkSourceFile(String extrasFile, File destFile,  Set<String> sources, Set<String> sinks){
 		
 		PrintWriter writer = null;
 		try {
 			//TODO does constructor with only file use default charset? This redudant?
-			writer = new PrintWriter(file, Charset.defaultCharset().displayName());
+			writer = new PrintWriter(destFile, Charset.defaultCharset().displayName());
 			for (String source : sources){
 				String sourceEntry = source + " -> _SOURCE_";
 				writer.println(sourceEntry);
@@ -48,18 +47,15 @@ public class ConfigUtils {
 			}
 			
 
-			if (base != null){
+			if (extrasFile != null){
 				
 				writer.println("");
 				writer.println("");
 				
-				//Load all the known UI sinks
-				Path path = FileSystems.getDefault().getPath(base);
-				List<String> UISinks = Files.readAllLines(path, Charset.defaultCharset());
-	
-				//Now add all the sinks
-				for (String sink : UISinks){
-					writer.println(sink);
+				Path path = FileSystems.getDefault().getPath(extrasFile);
+				List<String> extras = Files.readAllLines(path, Charset.defaultCharset());
+				for (String extra : extras){
+					writer.println(extra);
 				}
 			}
 			

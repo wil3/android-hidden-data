@@ -1,0 +1,15 @@
+firstname
+lastname
+zipcode
+address
+city
+cell
+phonenumber
+cellnumber
+worknumber
+latitude
+longitude
+dob
+dateofbirth
+birthday
+email

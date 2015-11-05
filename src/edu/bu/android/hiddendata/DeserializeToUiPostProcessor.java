@@ -36,6 +36,7 @@ import soot.jimple.InvokeExpr;
 import soot.jimple.InvokeStmt;
 import soot.jimple.Stmt;
 import soot.jimple.infoflow.android.SetupApplication;
+import soot.jimple.infoflow.android.data.AndroidMethod;
 import soot.jimple.infoflow.android.source.data.SourceSinkDefinition;
 import soot.jimple.infoflow.data.AccessPath;
 import soot.jimple.infoflow.results.InfoflowResults;
@@ -75,6 +76,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 	 */
 	public void findHiddenData(){
 		
+		Map<String, TMIResult> cluster = new HashMap<String, TMIResult>();
 
 		Set<String> foundSourcesConfidentHigh = new HashSet<String>();
 		Set<String> foundSourcesConfidentLow = new HashSet<String>();
@@ -93,48 +95,128 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 			 * fromJson -> List.add()	Is this list that is added the same as the list who has a path to a UI element?
 			 */
 			//Just add all the signatures of the sources into a list
+			Map<String, String> mapping = stage2Config.getDeserializeToModelMapping();
+
 			for (ResultSinkInfo foundSink : results.getResults().keySet()) {
 				
-				Set<String> getMethodsUsedForSink = new HashSet<String>();
+				Set<String> modelDataUsedInSink = new HashSet<String>();
+				Set<ModelDataAndClass> modelDataAndClass= new HashSet<ModelDataAndClass>();
+
+				Set<String> originalDeserializers = new HashSet<String>();
 				boolean isOriginalDeserializer = false;
 				for (ResultSourceInfo foundSource : results.getResults().get(foundSink)) {
 					
+					String src = foundSource.getSource().toString();
 					//Make sure its form original source
 					if (isOriginalSource(foundSource.getSource().toString())){
 						
 						
 						//If fromJson do nothing everything is great
 						//otherwise
+
+						//First try seeign if the model is included in the path and just walk backwards
+						//If using something with lenth > 1 
+						//or contextsensitive
+						Set<String>  modelDataUsed = getTaintedModelMethodFromFlow(foundSource);
 						
 						//If original sink
 						if (foundSource.getSource().toString().contains("fromJson")){
 							isOriginalDeserializer = true;
 						}
-						if (isDeserializeMethod(foundSource.getSource().toString())){
+						String sig = PostProcessor.makeSignature(foundSource);
+						if (isDeserializeMethod(sig)){
+							originalDeserializers.add(sig);
 							isOriginalDeserializer = true;
+							
+							
 						}
 						
-						//First try seeign if the model is included in the path and just walk backwards
-						Set<String>  getMethodsUsed = getTaintedModelMethodFromFlow(foundSource);
+						ModelDataAndClass mdac = new ModelDataAndClass();
+						mdac.modelData = getSignatuteFromStmt(foundSource.getSource(), false);
+						mdac.modelDataClass = getDeclaringClass(foundSource.getSource());
 						
+						modelDataAndClass.add(mdac);
 						//Otherwise as a last resort look directly at the 
-						if (getMethodsUsed.isEmpty()){
+						if (modelDataUsed.isEmpty()){
 							
 						}
 						//foundSources.addAll(getMethodsUsed);
-						getMethodsUsedForSink.addAll(getMethodsUsed);
+						modelDataUsedInSink.addAll(modelDataUsed);
 					}
-				}
+				} //end source
 				
+				if (!originalDeserializers.isEmpty()){
+					
+					/*
+					 * What we are trying to do here is cluster the results.
+					 * When we arent using contextsentistive flows (which is most of the time because of memory issues)
+					 * we have many results pointing to a single UI sink.
+					 * 
+					 * We cluster the results based on the originating deserialize sources.
+					 * The model data that belongs to the deserialize class will be grouped together
+					 */
+					if (mapping != null){//backwards compatible
+										
+						for (String d : originalDeserializers){
+							
+						//	Set<String> hidden = new HashSet<String>();
+							Set<String> shown = new HashSet<String>();
+							
+							String deserializedModel = mapping.get(d);
+							
+							if (deserializedModel != null){
+								for (ModelDataAndClass m : modelDataAndClass){
+									//FIXME this check will fail if nested objects are used
+									if (m.modelDataClass.equals(deserializedModel)){
+										shown.add(m.modelData);
+										
+										
+									}
+								}
+								
+								if (!cluster.containsKey(d)){
+									TMIResult tmi = new TMIResult();
+									tmi.model = deserializedModel;
+									tmi.hidden = new HashSet<String>();
+									tmi.shown = new HashSet<String>();
+									cluster.put(d, tmi);
+								}
+								cluster.get(d).shown.addAll(shown);
+								//cluster.get(d).hidden.addAll(hidden);
+							}
+						}	
+					}
+					
+				}
 				//Is a source of fromJson? If so then everything is cool
 				//we will add all the getMethods found here
 				if (isOriginalDeserializer){
-					foundSourcesConfidentHigh.addAll(getMethodsUsedForSink);
+					foundSourcesConfidentHigh.addAll(modelDataUsedInSink);
 				} else {
 					//Not really confident
-					foundSourcesConfidentLow.addAll(getMethodsUsedForSink);
+					foundSourcesConfidentLow.addAll(modelDataUsedInSink);
 				}
+			} //end sink
+			
+			//Figure out hidden
+			for (String d : cluster.keySet()){
+				String deserializedModel = mapping.get(d);
+				Set<String> hidden = getModelDataByClassName(deserializedModel);
+				
+				Iterator<String> it = hidden.iterator();
+				while (it.hasNext()){
+					String h = it.next();
+					if (cluster.get(d).shown.contains(h)){
+						it.remove();
+					}
+				}
+				cluster.get(d).hidden = hidden;
 			}
+			
+			
+			
+			
+			printCluster(cluster);
 			
 			//From all of the method signatures, remove the ones we found
 			//whats left is hidden
@@ -144,6 +226,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 			}
 			for (String f : foundSourcesConfidentLow ){
 				logger.info("(Low) Method used! {}", f);
+				hiddenMethods.remove(f);
 			}
 			
 		}
@@ -164,8 +247,32 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 		//results.setHiddenGetMethodSignatures(hiddenMethods);
 		results.setUsedConfidenceHigh(foundSourcesConfidentHigh);
 		results.setUsedConfidenceLow(foundSourcesConfidentLow);
+		results.setCluster(cluster);
 		JsonUtils.writeResults(resultsFile, results);		
 		
+	}
+	public class ModelDataAndClass{
+		public String modelData;
+		public String modelDataClass;
+	}
+	//private Set<String> getDataOriginatingFromDeserializer(){
+		
+	//}
+	private void printCluster(Map<String, TMIResult> cluster){
+		logger.info("The following are used for the given response deserialized");
+		for (String key : cluster.keySet()){
+			logger.info("Deserialized " + key);
+			TMIResult tmi = cluster.get(key);
+			logger.info("{} Shown, {} Hidden", tmi.shown.size(), tmi.hidden.size());
+			logger.info("\tShown");
+			for (String show : tmi.shown){
+				logger.info("\t" + show);
+			}
+			logger.info("\tHidden");
+			for (String hide : tmi.hidden){
+				logger.info("\t" + hide);
+			}
+		}
 	}
 	private boolean isDeserializeMethod(String sig){
 		for (String originalDeserialize : stage2Config.getOriginalSinks()){
@@ -186,6 +293,19 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 		Scene.v().getCallGraph().size();
 	}
 	
+	
+	//TODO this will not work for nested clases
+	//TODO change the config to have model data mapped to the root model class
+	private Set<String> getModelDataByClassName(String className){
+		Set<String> data = new HashSet<String>();
+		
+		for (String d : stage2Config.getGetMethodSignatures()){
+			if (d.contains(className)){
+				data.add(d);
+			}
+		}
+		return data;
+	}
 	/**
 	 * Search the entire APK for instances of any of the get methods occuring so we can 
 	 * get an idea of coverage
@@ -244,7 +364,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 	/**
 	 * When we find a flow we must find out which method from the model was tainted and 
 	 * ended up at the sink. This will identify data that is displayed to the user.
-	 * @return Return a list because we want to find all the get methods that may have been accessed to get to this sink
+	 * @return Return a list of signatures because we want to find all the get methods that may have been accessed to get to this sink
 	 */
 	private Set<String> getTaintedModelMethodFromFlow(ResultSourceInfo source){
 		Set<String> tainted = new HashSet<String>();
@@ -277,7 +397,7 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 		}
 		return tainted;
 	}
-	
+	//FIXME this is a dup of the one is PostProcess
 	private String getSignatuteFromStmt(Stmt stmt, boolean useSub){
 
 		String signature = null;
@@ -307,6 +427,21 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 		
 		return signature;
 	}
+	//FIXME this is a dup of the one is PostProcess
+	private String getDeclaringClass(Stmt stmt){
+		
+		if (stmt.containsInvokeExpr()){
+
+			return stmt.getInvokeExpr().getMethod().getDeclaringClass().getName();
+		} 
+		else if (stmt.containsFieldRef()){
+			return stmt.getFieldRef().getField().getDeclaringClass().getName();
+			
+		} else {
+			
+		}
+		return null;
+	}
 	/**
 	 * Because of the way the flows are reported there could be errors from parsing so dont do that, 
 	 * just see if the signature is present in any sources found.
@@ -333,6 +468,18 @@ public class DeserializeToUiPostProcessor extends PostProcessor {
 			int referencesInApp = references.get(signature);
 			logger.info("\t({}) {} ", referencesInApp, signature );
 		}
+		
+	}
+	
+	public class ClusterResult{
+		public String deserializeMethod = null;
+		public Set<String> modelData;
+	}
+	
+	public class TMIResult {
+		String model;
+		public Set<String> hidden;
+		public Set<String> shown;
 		
 	}
 	

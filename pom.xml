@@ -3,7 +3,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>edu.bu.android.android-data-received</groupId>
 	<artifactId>android-data-received</artifactId>
-	<version>0.2.0-SNAPSHOT</version>
+	<version>0.2.3-SNAPSHOT</version>
 	<build>
 		<sourceDirectory>src</sourceDirectory>
 		<plugins>

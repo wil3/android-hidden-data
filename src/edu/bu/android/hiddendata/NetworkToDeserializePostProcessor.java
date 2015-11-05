@@ -126,6 +126,7 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 			return processLists;
 		}
 		
+		HashMap<String, String> deserializeToModelMapping = new HashMap<String, String>();
 		//Track all the objects that are added to lists
 		HashMap<String, ListFlow> addMethodParameterClassNames = new HashMap<String, ListFlow>();
 		Set<String> modelClassNames = new HashSet<String>();
@@ -175,6 +176,7 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 					//to list objects
 					String className = extractModelClassName(sink);
 					if (className != null){
+						deserializeToModelMapping.put(sig, className);
 						modelClassNames.add(className);
 					}
 			}
@@ -251,6 +253,7 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 		DeserializeToUIConfig result = new DeserializeToUIConfig();
 
 		result.setOriginalSinks(originalSinks);
+		result.setDeserializeToModelMapping(deserializeToModelMapping);
 		result.setGetMethodSignatures(modelMethodSignatures);
 		result.setModelNames(allModels);
 		result.setModelToListSignatureMapping(signatureToModelMapping);
@@ -447,22 +450,6 @@ public class NetworkToDeserializePostProcessor extends PostProcessor {
 				stmt.toString().contains("<java.util.List: boolean add(java.lang.Object)>");
 	}
 
-	private String makeSignature(ResultInfo resultInfo){
-		Stmt stmt = resultInfo.getStmt();
-
-		return makeSignature(resultInfo.getDeclaringClass(), stmt);
-	}
-	private String makeSignature(SootClass declaringClass, Stmt stmt){
-		String sinkClassName = declaringClass.getName();
-
-		int lineNumber = stmt.getJavaSourceStartLineNumber();
-		AndroidMethod am = new AndroidMethod(stmt.getInvokeExpr().getMethod());
-		am.setDeclaredClass(sinkClassName);
-		am.setLineNumber(lineNumber);
-		
-		String sig = am.getSignature();
-		return sig;
-	}
 
 	private String makeDefaultSignatureConstructor(String className){
 		AndroidMethod am = new AndroidMethod("<init>", "void", className);

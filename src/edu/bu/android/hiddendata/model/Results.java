@@ -3,6 +3,8 @@ package edu.bu.android.hiddendata.model;
 import java.util.Collection;
 import java.util.Map;
 
+import edu.bu.android.hiddendata.DeserializeToUiPostProcessor.TMIResult;
+
 public class Results {
 	private String apkName;
 	private int callGraphEdges;
@@ -26,6 +28,8 @@ public class Results {
 
 	//Given the used ones, to get hidden for each just need to exclude
 	private Map<String, Integer> getMethodsInApp;
+	
+	private Map<String, TMIResult> cluster;
 	
 	public String getApkName() {
 		return apkName;
@@ -82,4 +86,10 @@ public class Results {
 		this.notUsedInApp = notUsedInApp;
 	}
 */
+	public Map<String, TMIResult> getCluster() {
+		return cluster;
+	}
+	public void setCluster(Map<String, TMIResult> cluster) {
+		this.cluster = cluster;
+	}
 }

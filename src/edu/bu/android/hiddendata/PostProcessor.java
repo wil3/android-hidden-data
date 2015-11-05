@@ -5,6 +5,7 @@ import java.util.List;
 
 import soot.RefType;
 import soot.Scene;
+import soot.SootClass;
 import soot.Type;
 import soot.Value;
 import soot.ValueBox;
@@ -12,6 +13,7 @@ import soot.jimple.InvokeStmt;
 import soot.jimple.Stmt;
 import soot.jimple.StringConstant;
 import soot.jimple.infoflow.android.SetupApplication;
+import soot.jimple.infoflow.android.data.AndroidMethod;
 import soot.jimple.infoflow.android.source.data.SourceSinkDefinition;
 import soot.jimple.infoflow.results.ResultInfo;
 import soot.jimple.infoflow.results.ResultSinkInfo;
@@ -153,6 +155,37 @@ public abstract class PostProcessor {
 			}
 		}
 		return false;
+	}
+	
+
+	public static String makeSignature(ResultInfo resultInfo){
+		Stmt stmt = resultInfo.getStmt();
+
+		
+		return makeSignature(resultInfo.getDeclaringClass(), stmt);
+	}
+	public static  String makeSignature(SootClass declaringClass, Stmt stmt){
+		AndroidMethod am;
+		String sinkClassName = declaringClass.getName();
+		int lineNumber = stmt.getJavaSourceStartLineNumber();
+		if (stmt.containsInvokeExpr()){
+
+			am = new AndroidMethod(stmt.getInvokeExpr().getMethod());
+			am.setDeclaredClass(sinkClassName);
+			am.setLineNumber(lineNumber);
+			return am.getSignature();
+		} 
+		else if (stmt.containsFieldRef()){
+			return stmt.getFieldRef().getField().getSignature();
+			//TODO this is a hack but use the field name as the method name
+			//am = new AndroidMethod(null,null,null);
+			
+			//am.setField(true);
+			
+		} else {
+			
+		}
+		return null;
 	}
 	
 	public class ListFlow {
