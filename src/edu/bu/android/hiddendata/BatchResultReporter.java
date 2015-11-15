@@ -66,7 +66,7 @@ public class BatchResultReporter {
 	 */
 	public List<File>  getFinishedWithResult(boolean display){
 		List<File> resultFiles = getResultFiles();
-		logger.info("{} results found", resultFiles.size());
+		logger.info("{} results.json file found", resultFiles.size());
 		if (display){
 			processResults(resultFiles);
 		}
@@ -99,7 +99,7 @@ public class BatchResultReporter {
 	 * Finished, may be have results, may not. But did not crash
 	 * @return
 	 */
-	public List<File>  getFinished(){
+	public List<File>  getFinished(boolean display){
 		List<File> resultFiles = new ArrayList<File>();
 		for (File apkDirFile : resultDirs){
 			String [] resultFile = apkDirFile.list(new FilenameFilter() {
@@ -113,7 +113,9 @@ public class BatchResultReporter {
 				resultFiles.add(apkDirFile);
 			}
 		}
-		logger.info("{} finished", resultFiles.size());
+		if (display){
+			logger.info("{} finished", resultFiles.size());
+		}
 		return resultFiles;
 	}
 	/**
@@ -156,7 +158,7 @@ public class BatchResultReporter {
 	 */
 	public void getOutOfMemory(boolean display){
 		List<File> files = getFiles("java_error", "log");
-		List<File> finished = getFinished();
+		List<File> finished = getFinished(false);
 		Iterator<File> it = files.iterator();
 		while (it.hasNext()){
 			File f = it.next();
@@ -172,7 +174,7 @@ public class BatchResultReporter {
 	 */
 	public void getFoundNetworkToModelFlows(boolean display){
 		List<File> files = getFiles(FindHidden.FLAG_MODEL, "");
-		logger.info("{} APKS have network to model flows");
+		logger.info("{} APKS have network to model flows", files.size());
 		if (display){
 			display(files, false);
 		}
@@ -253,11 +255,13 @@ public class BatchResultReporter {
 	 * From the results see which are candidates based on a list of keywords
 	 * @param keywordFile
 	 */
-	public void getCandidates(String keywordFile){
+	public void getCandidates(String keywordFile, boolean display){
 		
 		List<String> keywords = loadKeywords(keywordFile);
 		List<File> results = getResultFiles();
+		int count = 0;
 		for (File f : results){
+			boolean isCandidate = false;
 			Results result = new JsonUtils<Results>().load(f, Results.class);
 			Map<String, Integer> methods = result.getGetMethodsInApp();
 			Iterator<String> it = methods.keySet().iterator();
@@ -270,10 +274,19 @@ public class BatchResultReporter {
 					continue;
 				}
 				if (isKeyword(keywords, key)){
-					System.out.println(result.getApkName());
+					isCandidate = true;
 				}
 			}
+			
+			if (isCandidate){
+				if (display){
+					System.out.println(result.getApkName());
+				}
+				count ++;
+			}
 		}
+		
+		logger.info("{} Candidates found.", count);
 	}
 	private boolean isKeyword(List<String> list, String name){
 		for (String l : list){
@@ -317,7 +330,9 @@ public class BatchResultReporter {
 		options.addOption("n", "Network to model flows found");
 		options.addOption("N", "List of APKs where network to model flows found");
 		
-		options.addOption("c", "candidates", true, "List candidates");
+		options.addOption("c", "candidates", true, "List number candidates");
+		options.addOption("C", "candidateslist", true, "List candidates");
+
 		options.addOption("t", "Total number of APKs processed");
 
 	    try {
@@ -345,7 +360,7 @@ public class BatchResultReporter {
 			} 
 			
 			if (line.hasOption("t")){
-				report.getFinished();
+				report.getFinished(true);
 			}
 			
 			if (line.hasOption("s")){
@@ -363,7 +378,9 @@ public class BatchResultReporter {
 			}
 			
 			if (line.hasOption("c")){
-				report.getCandidates(line.getOptionValue("c"));
+				report.getCandidates(line.getOptionValue("c"), false);
+			} else if (line.hasOption("C")){
+				report.getCandidates(line.getOptionValue("C"), true);
 			}
 		} catch (ParseException e) {
 			e.printStackTrace();

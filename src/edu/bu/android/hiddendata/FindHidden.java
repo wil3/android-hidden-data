@@ -218,8 +218,10 @@ public class FindHidden {
 			
 			AnalysisResults results = null;
 			
+			long stamp = System.currentTimeMillis();
+			
 			File sourceSinkFileList = new File(apkResult1Dir, apkFileName + LIST_SUFFIX);
-			File resultsFile = new File(apkResult1Dir, apkFileName + RESULTS_SUFFIX);
+			File resultsFile = new File(apkResult1Dir, apkFileName + "-" + stamp + RESULTS_SUFFIX);
 			File sourceSinkFileDeserializeToUI = new File(apkResult1Dir, sourceAndSinkFileName);
 			File easyTaintFileDeserializeToUI  = new File(apkResult1Dir, easyTaintFileName );
 			File jsonToUIresultsFile = new File(apkResult1Dir, apkFileName + FindHidden.MODEL_TO_UI_CONFIG_SUFFIX );

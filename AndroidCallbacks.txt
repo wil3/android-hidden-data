@@ -81,3 +81,5 @@ android.widget.TabHost$OnTabChangeListener
 android.widget.TextView$OnEditorActionListener
 android.widget.TimePicker$OnTimeChangedListener
 android.widget.ZoomButtonsController$OnZoomListener 
+android.app.LoaderManager$LoaderCallbacks
+android.support.v4.app.LoaderManager$LoaderCallbacks

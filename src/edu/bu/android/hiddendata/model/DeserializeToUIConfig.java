@@ -6,6 +6,7 @@ import java.util.Map;
 
 public class DeserializeToUIConfig {
 
+	private Map<String, String> deserializeToModelMapping;
 	private Collection<String> originalSinks;
 	private Collection<String> getMethodSignatures;
 	private Collection<String> modelNames;
@@ -63,6 +64,15 @@ public class DeserializeToUIConfig {
 
 	public void setOriginalSinks(Collection<String> originalSinks) {
 		this.originalSinks = originalSinks;
+	}
+
+	public Map<String, String> getDeserializeToModelMapping() {
+		return deserializeToModelMapping;
+	}
+
+	public void setDeserializeToModelMapping(
+			Map<String, String> deserializeToModelMapping) {
+		this.deserializeToModelMapping = deserializeToModelMapping;
 	}
 
 }
