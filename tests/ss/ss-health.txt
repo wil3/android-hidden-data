@@ -1,0 +1,40 @@
+<com.b.a.k: java.lang.Object a(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.b.a.k: java.lang.Object a(java.lang.String,java.lang.Class)> -> _SINK_
+<com.google.a.k: java.lang.Object a(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.google.a.k: java.lang.Object a(java.lang.String,java.lang.Class)> -> _SINK_
+<com.google.b.j: java.lang.Object a(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.google.b.j: java.lang.Object a(java.lang.String,java.lang.Class)> -> _SINK_
+<com.google.gson.Gson: java.lang.Object fromJson(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.google.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)> -> _SINK_
+<com.google.gson.k: java.lang.Object a(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.google.gson.k: java.lang.Object a(java.lang.String,java.lang.Class)> -> _SINK_
+<com.google.mygson.Gson: java.lang.Object fromJson(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.google.mygson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)> -> _SINK_
+<com.millennialmedia.a.a.j: java.lang.Object a(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.millennialmedia.a.a.j: java.lang.Object a(java.lang.String,java.lang.Class)> -> _SINK_
+<com.millennialmedia.a.a.k: java.lang.Object a(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.millennialmedia.a.a.k: java.lang.Object a(java.lang.String,java.lang.Class)> -> _SINK_
+<com.millennialmedia.google.gson.Gson: java.lang.Object fromJson(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.millennialmedia.google.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)> -> _SINK_
+<com.newrelic.com.google.gson.Gson: java.lang.Object fromJson(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.newrelic.com.google.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)> -> _SINK_
+<com.socialize.google.gson.Gson: java.lang.Object fromJson(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.socialize.google.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)> -> _SINK_
+<com.startapp.android.publish.gson.Gson: java.lang.Object fromJson(java.io.Reader,java.lang.Class)> -> _SINK_
+<com.startapp.android.publish.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)> -> _SINK_
+<jarjar.kqihtm.gson.Gson: java.lang.Object fromJson(java.io.Reader,java.lang.Class)> -> _SINK_
+<jarjar.kqihtm.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)> -> _SINK_
+
+
+<java.net.URLConnection: java.io.InputStream getInputStream()> -> _SOURCE_
+<org.apache.http.HttpEntity: java.io.InputStream getContent()> -> _SOURCE_
+<java.net.URL: java.net.URLConnection openConnection()> -> _SOURCE_
+<org.apache.http.HttpResponse: org.apache.http.HttpEntity getEntity()> -> _SOURCE_
+<org.apache.http.util.EntityUtils: java.lang.String toString(org.apache.http.HttpEntity)> -> _SOURCE_
+<org.apache.http.util.EntityUtils: java.lang.String toString(org.apache.http.HttpEntity,java.lang.String)> -> _SOURCE_
+<org.apache.http.util.EntityUtils: java.lang.String getContentCharSet(org.apache.http.HttpEntity)> -> _SOURCE_
+
+
+%OkHTTP
+<com.squareup.okhttp.ResponseBody: java.lang.String string()> -> _SOURCE_
+<com.squareup.okhttp.Call: com.squareup.okhttp.Response execute()> -> _SOURCE_ 
